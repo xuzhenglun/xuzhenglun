@@ -12,7 +12,11 @@ categories: Kubernetes
 `kube-apiserver` 莫名其妙报 KubeAPIErrorsHigh 告警，CPU/Memory/Disk 都是好的。结果一路查下去似乎进了不知道有多深的兔子洞，坑深到这个问题从 2018 年到至今都没有完成彻底的修复。爬了很多楼，过程中学到了一些东西，这个文章全当做一个记录，假如有其他倒霉蛋看到这边也碰到了这个问题，希望这个文章能帮助到你。
 
 <!-- more -->
+# Update 2023.1.25
+这个问题在 1.27 后得到了[修复PR#115093](https://github.com/kubernetes/kubernetes/pull/115093)，`client-go` 应该又能和 1.17 之前的 `kube-apiserver` 兼容了。之前的版本可以手动cherry-pick或者 Patch api来实现 workaround。
 
+
+---
 # 现象
 
 事情的起因都是千篇一律的：客户环境驻场反馈用户的 Prometheus 告警规则内的 KubeAPIErrorsHigh 项目持续告警了一个月，简单查看该告警对应的 PromSQL 如下：
