@@ -181,7 +181,7 @@ theme_config:
 
   three:
     enable: true
-    canvas_lines: true
+    canvas_lines: false
 
   adsense:
     enable: true
