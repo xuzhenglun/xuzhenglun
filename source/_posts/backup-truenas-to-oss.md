@@ -62,7 +62,7 @@ S3 因为 GFW 的原因，在国内基本上用不了。所以自然是只剩下
 
 ## 额外工作
 ### 1. 让 TrueNAS 支持 OSS
-这一步是最简单的，TrueNAS 云同步任务后台采用的其实是 [Rclone](https://rclone.org/)。由于 OSS 支持 S3 API，所以理论上 Rclone 用 S3 API 应该也是可以工作的。但是实际上，因为[阿里云并非完全兼容 OSS](https://help.aliyun.com/document_detail/389025.html)，所以直接配置是会失败的。
+这一步是最简单的，TrueNAS 云同步任务后台采用的其实是 [Rclone](https://rclone.org/)。由于 OSS 支持 S3 API，所以理论上 Rclone 用 S3 API 应该也是可以工作的。但是实际上，因为[阿里云并非完全兼容 S3](https://help.aliyun.com/document_detail/389025.html)，所以直接配置是会失败的。
 
 通过[翻阅文档](https://rclone.org/s3/#alibaba-oss)和[代码](https://github.com/rclone/rclone/commit/a4af737bf021a73ee7a2324f101569de20ce8be7)，实际上 Rclone 是可以使用 S3 API 来支持 OSS 的。唯一的改动是需要添加一个配置，只需要关闭 `force_path_style` 功能或者正确配置 `provider` 参数即可。
 
