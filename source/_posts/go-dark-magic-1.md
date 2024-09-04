@@ -17,6 +17,13 @@ Go是一门语法以`Less is More`为哲学的语言，以简单易学为设计�
 Go作为一门静态语言，和别的语言一样需要经过编译，链接。而编译指示就是在这个过程中，额外输入给编译器或者连接器的信息。利用这些指示，可以绕开或者做到一些特殊的功能。这些功能被只言片语的从[官方文档](https://golang.org/cmd/compile/#hdr-Compiler_Directives)中带过了，或者根本就[没写](https://dave.cheney.net/2018/01/08/gos-hidden-pragmas)。无论写没写，可以看得出来的是：官方的确不太想让普通用户都知道这些。
 
 # Go:linkname
+
+> 截止 Go 1.23 ，这个方法已经不 work 了，之前已经使用了的知名项目也都被挂到了 Go 源码的耻辱柱上，包括 Containerd、gVisor、tidb 等。
+> 
+> xRef:
+> 1. https://tip.golang.org/doc/go1.23#linker
+> 2. https://github.com/golang/go/issues/67401
+
 回到主题，本文主要打算介绍一个比较安全的黑魔法：Linkname。利用这个Pragmas，可以使得编译器仅仅保留一个符号，并在链接的过程中将这个符号链接到目标上去。废话不再多说，直接上例子：
 ```Go
 package main
