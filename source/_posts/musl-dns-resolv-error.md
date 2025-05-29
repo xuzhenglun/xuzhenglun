@@ -48,7 +48,7 @@ options: ndots:5
 ```
 
 使用场景方面：
-1. Pod 使用 FQDN 域名 (如 `<svc-name>.<ns>.svc.cluster.local` 这样完整的域名) 访问 Service，相同的 FDNQ 域名在宿主机上正确返回，在 Pod 内超时失败；
+1. Pod 使用 FQDN 域名 (如 `<svc-name>.<ns>.svc.cluster.local` 这样完整的域名) 访问 Service，相同的 FQDN 域名在宿主机上正确返回，在 Pod 内超时失败；
 2. 出现问题的 Pod 有容器网络的，也有 Host 网络的。但不管是哪个模式 `/etc/resolv.conf` 都正确配置指向了 CoreDNS，并且搜索域等参数符合预期，没人改过；
 3. 现场尝试魔改 `/etc/resolv.conf` 里的 `ndots` 参数，把默认的 `ndots:5` 改成 `ndots:4` 之后通了。
 
@@ -58,7 +58,7 @@ options: ndots:5
 
 在开发环境构建相似场景，在 `/etc/resolv.conf` 内添加 `options ndots:5` 后，并添加了两个不存在的搜索域 `search1` 和 `search2`，发起查询 `baidu.com` 并抓包结如下，此时可见 musl 在各搜索域内失败后，是会在全局域下发起查询的。
 
-![NXDOMAIN](./images/nxdomain.png)
+![NXDOMAIN](images/musl-dns-resolv-error/nxdomain.png)
 
 那么这个就非常奇怪了，看看代码是否存在线索。在容器里 `apk list` 查到环境里的 musl 版本是 1.1.24，下载对应版本代码读一下：
 
@@ -187,7 +187,7 @@ int __dns_parse(const unsigned char *r, int rlen, int (*callback)(void *, int, c
 6. `mysql.default.svc.cluster.local`
 
 尝试到 3 和 4 的时候，出现了一些些不一样的地方：前者返回 `NXDOMAIN` 而后者返回 `SERVFAIL`。
-![dig-results](./images/dig-results.png)
+![dig-results](images/musl-dns-resolv-error/dig-results.png)
 
 检查 CoreDNS 的配置，可见 Corefile 中并没有配置 `forward` 参数。至于原因嘛，是因为这个环境中就没有可用的 DNS 服务器，而所有宿主机 `/etc/resolv.conf` 中指向的就是这个 CoreDNS，所以常见的 `forward` 自然就不能有了，否则就会循环了。
 
