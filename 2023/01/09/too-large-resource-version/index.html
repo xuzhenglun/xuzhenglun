@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+    <script data-ad-client="ca-pub-2538407472813986" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"reficul.io","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="kube-apiserver 莫名其妙报 KubeAPIErrorsHigh 告警，CPU&#x2F;Memory&#x2F;Disk 都是好的。结果一路查下去似乎进了不知道有多深的兔子洞，坑深到这个问题从 2018 年到至今都没有完成彻底的修复。爬了很多楼，过程中学到了一些东西，这个文章全当做一个记录，假如有其他倒霉蛋看到这边也碰到了这个问题，希望这个文章能帮助到你。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="kube-apiserver 持续告警 KubeAPIErrorsHigh 调查">
+<meta property="og:url" content="https://reficul.io/2023/01/09/too-large-resource-version/index.html">
+<meta property="og:site_name" content="Reficul">
+<meta property="og:description" content="kube-apiserver 莫名其妙报 KubeAPIErrorsHigh 告警，CPU&#x2F;Memory&#x2F;Disk 都是好的。结果一路查下去似乎进了不知道有多深的兔子洞，坑深到这个问题从 2018 年到至今都没有完成彻底的修复。爬了很多楼，过程中学到了一些东西，这个文章全当做一个记录，假如有其他倒霉蛋看到这边也碰到了这个问题，希望这个文章能帮助到你。">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2023-01-09T02:33:00.000Z">
+<meta property="article:modified_time" content="2025-05-29T17:21:18.453Z">
+<meta property="article:author" content="Reficul">
+<meta property="article:tag" content="Kubernetes">
+<meta property="article:tag" content="KubeAPIErrorsHigh">
+<meta property="article:tag" content="Too large resource version">
+<meta property="article:tag" content="kube-apiserver">
+<meta property="article:tag" content="504">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://reficul.io/2023/01/09/too-large-resource-version/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>kube-apiserver 持续告警 KubeAPIErrorsHigh 调查 | Reficul</title>
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-57211109-1"></script>
+    <script>
+      if (CONFIG.hostname === location.hostname) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'UA-57211109-1');
+      }
+    </script>
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Reficul</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://reficul.io/2023/01/09/too-large-resource-version/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/icon.jpg">
+      <meta itemprop="name" content="Reficul">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Reficul">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          kube-apiserver 持续告警 KubeAPIErrorsHigh 调查
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：1月 9 2023 2:33:00" itemprop="dateCreated datePublished" datetime="2023-01-09T02:33:00+00:00">1月 9 2023</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：5月 29 2025 17:21:18" itemprop="dateModified" datetime="2025-05-29T17:21:18+00:00">5月 29 2025</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Kubernetes/" itemprop="url" rel="index"><span itemprop="name">Kubernetes</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p><code>kube-apiserver</code> 莫名其妙报 KubeAPIErrorsHigh 告警，CPU&#x2F;Memory&#x2F;Disk 都是好的。结果一路查下去似乎进了不知道有多深的兔子洞，坑深到这个问题从 2018 年到至今都没有完成彻底的修复。爬了很多楼，过程中学到了一些东西，这个文章全当做一个记录，假如有其他倒霉蛋看到这边也碰到了这个问题，希望这个文章能帮助到你。</p>
+<span id="more"></span>
+<h1 id="Update-2023-1-25"><a href="#Update-2023-1-25" class="headerlink" title="Update 2023.1.25"></a>Update 2023.1.25</h1><p>这个问题在 1.27 后得到了<a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/115093">修复PR#115093</a>，<code>client-go</code> 应该又能和 1.17 之前的 <code>kube-apiserver</code> 兼容了。之前的版本可以手动cherry-pick或者 Patch api来实现 workaround。</p>
+<hr>
+<h1 id="现象"><a href="#现象" class="headerlink" title="现象"></a>现象</h1><p>事情的起因都是千篇一律的：客户环境驻场反馈用户的 Prometheus 告警规则内的 KubeAPIErrorsHigh 项目持续告警了一个月，简单查看该告警对应的 PromSQL 如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">- alert: KubeAPIErrorsHigh</span><br><span class="line">  annotations:</span><br><span class="line">    message: API server is returning errors for &#123;&#123;`&#123;&#123; $value &#125;&#125;`&#125;&#125;% of requests.</span><br><span class="line">    runbook_url: https://github.com/kubernetes-monitoring/kubernetes-mixin/tree/master/runbook.md#alert-name-kubeapierrorshigh</span><br><span class="line">  expr: |-</span><br><span class="line">    sum(rate(apiserver_request_count&#123;job=&quot;apiserver&quot;,code=~&quot;^(?:5..)$&quot;&#125;[5m])) without(instance, pod)</span><br><span class="line">      /</span><br><span class="line">    sum(rate(apiserver_request_count&#123;job=&quot;apiserver&quot;&#125;[5m])) without(instance, pod) * 100 &gt; 10</span><br></pre></td></tr></table></figure>
+
+<p>大概意思是 <code>kube-apiserver</code> 的 API 5分钟的请求中，返回码是 <code>5xx</code>  的占总请求数量的 10% 以上了。通过直接在 Prometheus 内查询对应的 Metric 指标，锁定有 2 台 <code>kube-apiserver</code> 对于特定的几个资源类型总是返回 504 超时。立刻翻看对应的 <code>kube-apiserver</code> 的日志，含有大量慢请求的 Trace 日志，并在 3s 后超时。</p>
+<h1 id="调查弯路"><a href="#调查弯路" class="headerlink" title="调查弯路"></a>调查弯路</h1><p>通常情况下，<code>kube-apiserver</code> 超时都是因为无良客户端无止境的昂贵请求把 <code>kube-apiserver</code> 打死。 最典型的是在执行 LIST 请求的时候，由于没有带有 <code>resourceVersion</code> 参数导致 <code>kube-apiserver</code> 内的 <code>watch-cache</code> 无法提供缓存，请求穿透缓存打在了 <code>etcd3</code> 的存储实现上。 由于改过程是一个 <code>quorum read</code>，加之返回数据量较大的时候（通常在大规模集群内，如上万个 Pod 规模情况下，LIST pod 的响应能够达到 500-800MB），很容易将 <code>etcd</code> 和 <code>kube-apiserver</code> 的 CPU和内存负载打到极高，进而产生大量的超时。这种超时往往是雪崩式、灾难级的，因为这很可能导致如 <code>lease</code> 之类的关键请求超时，继而触发更多的 Controller 换主&#x2F;发生 relist 的情况，而这部分 LIST 请求无疑会更加加剧 <code>kube-apiserver</code> 的负载，最终导致控制面挂掉且无法恢复。</p>
+<p>这波 504 超时想当然的按照上面的怀疑开始调查：</p>
+<ol>
+<li>观察 <code>kube-apiserver</code> 的负载：50% CPU 以下 + 1.3G RSS 内存，根本负载情况完全正常；</li>
+<li>观察 <code>etcd</code> 的负载：15% 的 CPU + 10G RSS 内存，CPU 很低内存偏高，不过整体上也没啥问题；</li>
+<li>观察 <code>etcd</code> 日志以及对应数据盘负载：日志内只有很久之前出现过两次慢 IO，磁盘整体上使用率很低，也看不出啥问题；</li>
+</ol>
+<p>至此陷入了僵局，看起来不像是负载问题导致的。加上现场环境比较特殊，是国产 CPU + 混部环境的组合。因此在排除对硬件性能的不信任、以及复杂的 cGroup 绑核策略可能的怀疑上，浪费了较多的时间。</p>
+<p>后面进行了一些无目的复现和尝试：</p>
+<ol>
+<li>对 audit log 内 504 的请求通过 <code>kubectl</code> 进行尝试请求，反向返回一切正常；</li>
+<li>分析 audit log，进行数据统计。发现问题只集中在特定的 2 台 <code>kube-apiserver</code> 上，并且错误并不随机：对于给定的 <code>kube-apiserver</code>，报错的客户端就那几个特定的 Pod。</li>
+</ol>
+<p>结合以上两点，很容易怀疑到长链接的网络链路上。由于现场只能通过驻场手动执行 + 拍照来交互，对 <code>tcpdump</code> 抓包和对 <code>kube-apiserver</code> 的 pprof 分析显得就不太现实，最终只能通过尝试性重启 <code>kube-apiserver</code> 来观察是否能短期解决问题。事实上，在重启后的确不在报 504 异常，问题得到了临时性的解决。</p>
+<h1 id="原因定位"><a href="#原因定位" class="headerlink" title="原因定位"></a>原因定位</h1><p>次日在开发环境，同样的版本遇到了相同问题。由于可以直接 SSH 到机器上看，因此过程就变得高效很多，这次发现了更多的线索：</p>
+<ol>
+<li>客户端和现场中虽然不是一个 Pod，但是从服务端的错误码上看，都是 504。在该 Pod 的日志内，观察到了大量的错误日志：<code>Timeout: Too large resource version: 2564, current: 2459</code>；</li>
+<li>之前 <code>kubectl</code> 的重放请求不够精确，只是简单的执行了 <code>kubectl get foo</code>，而没有和实际的请求完全一致。将 audit log 中的 <code>requestURI</code> 内的请求完全复制过来，通过 <code>kubectl get --raw /foo?resourceVersion=2564</code> 进行请求后，获得到了和<code>(1)</code> 中一致的超时报错；</li>
+</ol>
+<p>复现了就好办了，借助 Google 的大力协助发现 Redhat 上很早就发现了类似的问题<a target="_blank" rel="noopener" href="https://bugzilla.redhat.com/show_bug.cgi?id=1877346">Bug #1877346</a>。通过对爬楼 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/issues/91073">Issue # 91073</a> 以及 Review <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/92537">PR #92537</a> 的代码，问题原因就很明确了。在 <code>client-go</code> 的 <code>reflactor</code> 实现中，如果因为某些原因 <code>Watch</code> 过程中断需要发生 relist 的时候，代码内只判断了是否是请求的 RV(resourceVersion) 太旧的异常，而没有判断太新。</p>
+<p>这里要能明白这两个异常，需要补充一下 RV 相关的背景知识。正常情况下，存储在 <code>etcd</code> 内的数据都会带有一个版本号，这个版本号是单调递增的，且每次修改都会导致对应 KV 的版本改变。借助这个机制，<code>kube-apiserver</code> 就可以提供一个线性一致性的缓存机制：客户端请求某个资源的时候，不希望看到比上次看到更老的版本，即发生回到过去的情况。那么他只需要在请求的时候将版本号带上，<code>kube-apiserver</code> 就可以很简单判断，从而保证只返回比这个版本号更新的数据。此时，就会有两种异常情况：</p>
+<ol>
+<li>客户端请求的版本是一个很旧的版本，这个版本已经被淘汰掉不在缓存之中了。那么 <code>kube-apiserver </code>将会返回 <code>410 Gone</code> 这个异常，并希望 Client 能够重新执行一次全新的 List-Watch；</li>
+<li>客户端请求的版本是一个很新的版本，这个版本还没有被同步进缓存之中。那么 <code>kube-apiserver</code> 将会等待一段时间（3秒），希望在这段时间内可以等到 etcd 那边实际的事件被同步进缓存。如果等到了，自然是正常返回，而没有等到那就会返回我们遇到的那个 <code>Timeout: Too large resource version</code> 异常。</li>
+</ol>
+<p>由于之前的版本内，只处理了太旧，没有处理太新，那么其实把这两种情况看作一样的情况去处理是不是就行了呢？ 实际上在 PR #92537 中，就是这么修复的。并且在 Issue #91073 中提到，这个 <code>client-go</code> 只影响到了 0.18.0 - 0.18.6 的客户端，0.17.x 不受到影响是因为引入 Bug 的 PR 被碰巧 Revert 掉了。所以理论上，只要把相关 Pod 的 <code>client-go</code> 升级到 0.18.6 之后的小版本就可以了。</p>
+<h1 id="进坑"><a href="#进坑" class="headerlink" title="进坑"></a>进坑</h1><p>按照上面的调查结果，只要升级 <code>client-go</code> 就行了。反过来说出问题的 Pod 应该都是在 0.18.0 - 0.18.6 之中的版本才对。正常如果故事结束，下面的事情就是给他们开一个 Bug，截图说明 <code>go.mod</code> 里这个地方要改下，然后在找人扫描下其他的代码仓库是否也有相关问题，有问题都开一遍 Bug 就结束了，但是这个问题还远远没有结束：</p>
+<ol>
+<li>问题相关的 Pod 的源码中，<code>client-go</code> 版本分别是 <code>0.22</code> 和 <code>0.20</code>，而这个问题在 <code>0.18</code> 就应该已经被修复了，WTF？</li>
+<li>我们的 K8S 版本是 1.16，1.18 之前的 <code>client-go</code> 没问题是因为一个 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/83520">PR #83520</a> 被 Revert 掉了，那么这个 PR 之前是为了修什么，又因为什么缺陷被 Revert 掉了？</li>
+</ol>
+<h2 id="修了，但没修好…"><a href="#修了，但没修好…" class="headerlink" title="修了，但没修好…"></a>修了，但没修好…</h2><p>针对问题(1)，接着翻 git log 发现了另外一个 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/94316">PR #94316</a>。在这个 PR 中，它修订了 <code>isTooLargeResourceVersionError</code> 函数，修复了对 <code>TooLargeResourceVersionError</code> 这个异常的判断，并在注释中指出：在 1.17.0-1.18.5 的 K8S 版本中，无法正确的分辨当前的异常是否是 <code>TooLargeResourceVersionError</code>，即之前的 PR #92537 只有在 1.18.5 之后的 <code>kube-apiserver</code> 上是正常工作的。行吧，但是这也不能解释为何 0.22 的 <code>client-go</code> 不能和 1.16 的 <code>kube-apiserver</code> 工作啊：</p>
+<ol>
+<li>PR #94316 在 0.18.9 进行了修复，0.22 肯定已经包含了这个修复了，即 1.17 以上的 <code>kube-apiserver</code> 不应该还有问题了；</li>
+<li>我们的 K8S 是 1.16，难道 1.16 和 1.17 在这个点上还有区别？</li>
+</ol>
+<p>分析报错响应：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line">--- # <span class="number">1.20</span></span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">   <span class="attr">&quot;kind&quot;</span><span class="punctuation">:</span><span class="string">&quot;Status&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;apiVersion&quot;</span><span class="punctuation">:</span><span class="string">&quot;v1&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;metadata&quot;</span><span class="punctuation">:</span><span class="punctuation">&#123;</span></span><br><span class="line">      </span><br><span class="line">   <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span><span class="string">&quot;Failure&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;message&quot;</span><span class="punctuation">:</span><span class="string">&quot;Timeout: Too large resource version: 900099999, current: 75601849&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;reason&quot;</span><span class="punctuation">:</span><span class="string">&quot;Timeout&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;details&quot;</span><span class="punctuation">:</span><span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;causes&quot;</span><span class="punctuation">:</span><span class="punctuation">[</span></span><br><span class="line">         <span class="punctuation">&#123;</span></span><br><span class="line">            <span class="attr">&quot;reason&quot;</span><span class="punctuation">:</span><span class="string">&quot;ResourceVersionTooLarge&quot;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="attr">&quot;message&quot;</span><span class="punctuation">:</span><span class="string">&quot;Too large resource version&quot;</span></span><br><span class="line">         <span class="punctuation">&#125;</span></span><br><span class="line">      <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;retryAfterSeconds&quot;</span><span class="punctuation">:</span><span class="number">1</span></span><br><span class="line">   <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;code&quot;</span><span class="punctuation">:</span><span class="number">504</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br><span class="line"></span><br><span class="line">--- # <span class="number">1.17</span></span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;kind&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Status&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;apiVersion&quot;</span><span class="punctuation">:</span> <span class="string">&quot;v1&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;metadata&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line"></span><br><span class="line">  <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Failure&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;message&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Timeout: Too large resource version: 90000000, current: 172897&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;reason&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Timeout&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;details&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;causes&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;message&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Too large resource version&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;retryAfterSeconds&quot;</span><span class="punctuation">:</span> <span class="number">1</span></span><br><span class="line">  <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;code&quot;</span><span class="punctuation">:</span> <span class="number">504</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br><span class="line"></span><br><span class="line">--- # <span class="number">1.16</span></span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">   <span class="attr">&quot;kind&quot;</span><span class="punctuation">:</span><span class="string">&quot;Status&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;apiVersion&quot;</span><span class="punctuation">:</span><span class="string">&quot;v1&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;metadata&quot;</span><span class="punctuation">:</span><span class="punctuation">&#123;</span></span><br><span class="line">      </span><br><span class="line">   <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span><span class="string">&quot;Failure&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;message&quot;</span><span class="punctuation">:</span><span class="string">&quot;Timeout: Too large resource version: 9000, current: 2459&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;reason&quot;</span><span class="punctuation">:</span><span class="string">&quot;Timeout&quot;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;details&quot;</span><span class="punctuation">:</span><span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;retryAfterSeconds&quot;</span><span class="punctuation">:</span><span class="number">1</span></span><br><span class="line">   <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">   <span class="attr">&quot;code&quot;</span><span class="punctuation">:</span><span class="number">504</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>眼尖的同学已经发现了，1.16 没有 <code>details.cause</code> 字段， 1.17 则没有 <code>details.cause.reason</code> 字段。关于 1.17 缺失的这个字段，这也正是 PR #94316 进行修复以进行兼容的地方，而这个 fix 之后直到最新的 master (1.26) 都没有再改过这个地方了。也就是说，1.18 之后的 <code>client-go</code> 是无法正确处理 1.17 前 <code>kube-apiserver</code> 返回的 <code>TooLargeResourceVersionError</code> 异常的，这个地方存在一个兼容性问题。</p>
+<p>那么关于修复方案，自然只有两条路：</p>
+<ol>
+<li>1.16 的 K8S 本来就不应该用 0.22 的 <code>client-go</code>，用回 1.16 兼容的 <code>0.16</code> 是合理的；</li>
+<li>想办法让 1.16 的 <code>kube-apiserver</code> 能够正确返回  <code>details.cause</code> 字段，从而兼容高版本的 <code>client-go</code>；</li>
+</ol>
+<p>前者需要联系所有的组件，并进行 hotfix。对于一个已经发了版的版本，Hotfix 一个大横向复杂需求可能涉及到一堆沟通成本，毕竟相关产研的水平甚至不能正确理解包管理。而且面临 Java、Python 等众多的 SDK 语言版本，无法统一准确扫描影响访问和快速复现验收。所以压力很容易被转移到方案二上来，最简单的就是 cherrypick 相关的改动，如果改动比较简单又没有冲突，不失为一种快速的修复方案。</p>
+<h2 id="修不好了！"><a href="#修不好了！" class="headerlink" title="修不好了！"></a>修不好了！</h2><p>翻了下 git log，报错信息增加<code>details.cause</code> 的改动来自 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/72170">PR #72170</a>, 而这个 PR 的标题则为 <code>Make resourceVersion parameter semantics consistent across all storage.Interface implementations</code>，看似和这个异常信息的修改毫无关系。Review 了下 PR 实现，它修改了 <code>etcd3</code> 存储层的实现，变更了 List 操作时候 RV 参数的语义，涉及到了一堆 Approver 的深度讨论，并且最后以 <code>I hope I don&#39;t regret this.</code> 的态度完成了代码的合并。 细究下去，这个 PR 背后是一个相当严重的 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/issues/59848">缓存数据一致性Bug #59848</a> 与之相关的则是一篇复杂的 <a target="_blank" rel="noopener" href="https://docs.google.com/document/d/1x3JXKwPTpum8S6bC-YXvoGS583iixuQSskEGukTAzcI">设计文档</a> 。该 Bug 至今没有完全修复，而 PR #72170 则只是其中的一个 fix 而已。当仔细查看这个设计文档的时候，则会发现所有的问题都汇聚在了这里，之前造成兼容性问题的 PR #83520 也是故事的一部分。</p>
+<p>这个Bug如果长话短说就是：客户端的缓存在HA部署的 <code>kube-apiserver</code> 时候，可能会发生时间倒退，继而导致最终行为上的错误。 这是一个数据一致性方面的根本性错误，打破了 API 基础原则中的线性一致性，会导致一连串的问题：比如可能会导致在不同节点出现两个同名的 Pod，这个的最坏情况（有状态业务）可能会使得业务数据丢失&#x2F;损坏。这个 Bug 的细节非常复杂和有趣，详细的细节可以查看 <a target="_blank" rel="noopener" href="https://docs.google.com/document/d/1x3JXKwPTpum8S6bC-YXvoGS583iixuQSskEGukTAzcI">设计文档</a> 和 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/issues/59848">原始 Bug Report #59848</a> ，我这里大概解释下我的理解。</p>
+<p>由于 <code>kube-apiserver</code> 中缓存的存在，且客户端 List 请求的时候如果带的参数是 RV&#x3D;0，则缓存中的数据会被直接返回（这个数据可能比实际 etcd 中的旧），这就导致如下场景：</p>
+<ol>
+<li>假设在 $t_1$ 时间在节点 $N_1$  上存在 Pod (uid&#x3D;foo);</li>
+<li>这个 Pod 被删除（如滚动更新），$N_1$ 的 Kubelet 将 Pod (uid&#x3D;foo) 停止，并删除其在 <code>kube-apiserver</code> 的元数据；</li>
+<li>控制器 (如 Statefulset Controller) 看到 Pod 被删除后不满足 replicas，故重新创建同名的 Pod (uid&#x3D;bar);</li>
+<li>在 $t_2$ 时间在节点 $N_2$  上的 Kubelet 看到这个 Pod (uid&#x3D;bar) 并将其启动;</li>
+<li>在 $t_1$ 时间在节点 $N_1$  上的 Kubelet 发生了异常退出并重启，重新初始化 Reflactor。这个过程中，会发起一次 List-Watch操作。但是由于存在多个 <code>kube-apiserver</code>，这次 List 返回的结果可能来自于其他的<code>kube-apiserver</code>实例，且该实例的缓存尚未追上最新的状态，故他将 Pod (uid&#x3D;foo) 返回给了  $N_1$  上的 Kubelet，导致之前已经被删除的  Pod (uid&#x3D;foo) 在 $N_1$ 被重新创建并拉起。</li>
+</ol>
+<p>而这个问题经过讨论，总结来说它的触发则有可能有两种情况： relist 和 restart：</p>
+<ol>
+<li>relist 代表客户端 Reflactor 并没有重初始化，还保留有之前的状态（如上次Watch到的最后的 RV 版本号）。这时候由于网络的抖动，或者请求的超时等等情况的时候，Reflacctor 会重新发起 List-Watch 操作，此时由于之前的 RV 还没丢失，因此还有可能可以利用之前的 RV 保持一致性。</li>
+<li>restart 代表客户端 Reflactor 被完全推倒重新初始化，多见于类似进程重启的时候。此时之前内存里的的状态数据已经完全丢失，故没有办法提供上次 Watch 到的 RV 来保证一致性了。</li>
+</ol>
+<p>还记得之前提到的 PR #83520 么？就是在 1.17 中被 Revert 掉，在 1.18 中引入 Bug 的那个PR，并在 1.18.9 才最终完全修复的那个 PR，并且导致至今为止都和 1.16 不兼容的那个 PR。这个 PR 就是着重解决了 relist 的这种情况，将之前 relist 的时候总是 <code>RV=0</code> 修改成了已知最新的 RV，这样就能保证重新 ListWatch 返回的数据总是比上次看到的新。但是已知的最新 RV 可能已经不能用了，比如发生了之前所说的，RV 已经从缓存中被淘汰了，这时候 API 会返回 <code>410 Gone</code> 。如果此时坚持继续使用这个 RV 进行重试，因为过去的版本不会再回来，因此客户端就会陷入死循环。因此这个地方需要对这个异常进行判断，在这种情况发生的时候，需要将 RV 参数置空（注意不是置0），强制绕过缓存直接从 etcd 获取数据。不巧的是，正如前面所说，已知的这个RV 除了太旧以外还可能太新，这个 PR 显然并未正确处理太新的情况 ，遗漏了对 <code>Too large resource version</code> 异常的处理，触发了客户端的死循环。</p>
+<p>对于 restart 的时候，似乎没有很好的办法来解决。上次观察到的 RV 在重启后将丢失，持久化的话也找不到一个安全的持久化方式。如果在重启后第一次请求直接从 etcd 中获取，在大规模集群中将直接打爆 <code>kube-apiserver</code>。为此，社区寄希望于能够在 RV&#x3D;0 的时候也能够从缓存中返回。对此 <code>kube-apiserver</code> 的维护者对 etcd 进行了加强，在 etcd 3.5 的 Watch API 上扩展了一个 <code>RequestProgress</code> 语义，使之能够很低的成本获取当前 etcd 中全局最新的 RV。当客户端发起 RV&#x3D;0 的 List 请求的时候，会等到缓存追到这个最新的 RV 之后再实际返回，从而保证了不会返回旧的数据。</p>
+<p>以上是背景知识，那么为什么 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/72170">PR #72170</a> 需要修改 List 操作 RV参数的语义呢？之前 etcd3 的 List 实现和 WatchCache 的实现不一致：在 WatchCache 的实现中，如果给定了一个非零的 RV，则返回的内容可能比给定的更大，而 etcd3 的实现则是必定返回的是当前给定的版本。上面对 relist &#x2F; restart 的 fix 都依赖于给定的 RV使得返回更新的内容。但是如果 WatchCache 和 etcd3 对这块的实现不同，则意味着情况会变的复杂：对于客户端，服务端的缓存开启与否会导致 API 对外的行为不同。如果开启了缓存，当 RV 过小的时候能够正常返回一个当前缓存的版本，而 etcd3 实现如果这个 RV 被压缩掉了则会返回 410 Gone。一个行为不稳定的 API 可能会引发很多问题，所以 PR #72170 被提了出来作为之后 fix 的前置条件。</p>
+<p>那么 PR #72170 做了什么呢？简单来说就是将 <code>storage.Interface</code> 这个接口的两个实现：WatchCache<br>和实际的 etcd3 实现做了行为上的统一。由于历史原因，这两者的行为并不完全相同。但是经过大佬们的讨论，这个修改在大多数情况下是安全的，因为：</p>
+<ol>
+<li>直接访问 etcd3 的时候，虽然忽略了给定的 RV。但是由于执行的 <code>quorum read</code> ，因此得到的数据是强一致保证的，因此必定比客户端已知的 RV 新；</li>
+<li>缓存开启的时候（默认开启），如果 RV 给定了，则请求一定从 cache 返回了，etcd3 的实现在链路上不会走到；</li>
+</ol>
+<p>基于此，在评估了风险并浏览了所有树内代码后，PR #72170 的风险被认为可控，最后冒险进行了合并。这就是这个 PR，为 <code>TooLargeResourceVersionError</code> 定义了单独的错误类型，作为实现的一个副作用新增了 <code>details.cause.message</code> 字段。 那么为什么这个 PR 在 1.17 被回滚了呢？</p>
+<h3 id="被回滚的-PR-72170"><a href="#被回滚的-PR-72170" class="headerlink" title="被回滚的 PR #72170"></a>被回滚的 PR #72170</h3><p>在 1.17 发布后，有一个 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/issues/86483">Issue #86483</a> 被汇报上来表明在升级 1.17.0 之后如果重启 <code>kube-apiserver</code> 会产生显著的惊群效应。由于修复的过程较为复杂和曲折讨论了很久，在有结论前由于风险较大直接在 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/86824">PR #86824</a> 在 1.17 版本内进行了回滚。具体惊群的路径如下：</p>
+<ol>
+<li>HA 集群中的 <code>kube-apiserver</code> 被重启后，由于之前 API 保持着的 Watch 长链接断开，使得 Client 发生 relist 操作；</li>
+<li>在多个 <code>kube-apiserver</code> 部署的时候，由于各实例的启动时间不同，其内部的 WatchCache 的 RV 是不同的，因为这个值来自于当时 etcd 内最大的 RV 值。假设 3 个 API 内的 RV 值分别是 v1、v2、v3，etcd 内全局最大的 RV 为 v100；</li>
+<li>v1 的 <code>kube-apiserver</code> 重启后内部的 RV 更新到最新 v100，而之前和它连接的客户端带着之前已知的 v1 来访问 v2、v3 的 kube-apiserver 此时往往问题不大；</li>
+<li>v3 的 <code>kube-apiserver</code> 重启后，而之前和它连接的客户端带着之前已知的 v3 去访问之前已经完成重启的 <code>kube-apiserver</code>，此时 <code>kube-apiserver</code> 最低认识的版本为 v100，则返回 401 Gone；</li>
+<li>由于 PR #72170 的改动，如果发生 Gone 异常的时候在重新发起的 List 请求中会将 RV 清空，因此这部分请求是无法被 WatchCache 缓存的，会被直接打进 etcd。注意这部分请求不止对最后重启的 <code>kube-apiserver</code> 是个问题，因为没有 RV 所以对于所有的 <code>kube-apiserver</code> 实例都是无法缓存的；</li>
+<li>高负载导致之前能正确处理的请求进入限流，导致重要请求比如 <code>lease</code> 失败，触发更多的组件触发 relist，进一步推高负载，最终导致雪崩；</li>
+</ol>
+<p>这个问题于 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/86430/files">PR #86430</a> 中得到修复，这个 fix 修改了位于客户端的 Reflector，修复的手段不能说是 Dirty Hack 的话，说 Hack 一点也不过分。修改主要集中在以下两点：</p>
+<ol>
+<li>在配置了 RV !&#x3D; 0 的时候，将 ListOption 中的 PageSize 无效化；</li>
+<li>如果之前 List 返回的结果里出现过分页，则关闭 (1) 的这个行为；</li>
+</ol>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">list, paginatedResult, err = pager.List(context.Background(), options)</span><br><span class="line"><span class="keyword">if</span> isExpiredError(err) &#123;</span><br><span class="line">	r.setIsLastSyncResourceVersionExpired(<span class="literal">true</span>)</span><br><span class="line">	<span class="comment">// Retry immediately if the resource version used to list is expired.</span></span><br><span class="line">	<span class="comment">// The pager already falls back to full list if paginated list calls fail due to an &quot;Expired&quot; error on</span></span><br><span class="line">	<span class="comment">// continuation pages, but the pager might not be enabled, or the full list might fail because the</span></span><br><span class="line">	<span class="comment">// resource version it is listing at is expired, so we need to fallback to resourceVersion=&quot;&quot; in all</span></span><br><span class="line">	<span class="comment">// to recover and ensure the reflector makes forward progress.</span></span><br><span class="line">	list, paginatedResult, err = pager.List(context.Background(), metav1.ListOptions&#123;ResourceVersion: r.relistResourceVersion()&#125;)</span><br><span class="line">&#125;</span><br><span class="line"><span class="built_in">close</span>(listCh)</span><br></pre></td></tr></table></figure>
+
+<p>要说清楚事情，无奈贴段代码在这。在修复之前，第一行的这个 List 会发出带  <code>RV=1&amp;limit=500</code> 参数的请求。由于这个RV已经很久了，所以这个请求会返回 <code>410 Gone</code> ；于是将 RV 置空之后重新发起 List 请求，就是这个第二次请求打穿了缓存，打爆了 API。那么在修复之后呢？基于上面提到的，这个 PR 只不过关闭了分页功能，因此 <code>limit</code>  这个参数就不存在了，但是发出去的请求 RV 还是 1，这时候不也应该返回 <code>410 Gone</code>，然后继续一样的故事把 API 打爆么？事情就吊诡在这里，这个 PR 依赖了 WatchCache 的一个特定行为：<strong>如果 List 请求提供了 RV 且开启了分页，则缓存无效</strong>。这么设计的原因大概是因为由于缓存只有一个版本，所以无法在实现之后的 Continue 操作以获取第二页。所以啊，在分页关闭后第一个 List 请求就可以被 WatchCache 正确处理了，而对于 Cache 而言它只会保证返回的版本比提供的 RV 新，提供的 RV 再旧也不可能会返回 <code>410 Gone</code>，因此也不会去执行第二次昂贵的重试了。而至于上面提到的关闭 (1) 的这个行为的目的，则是为了将这个 Hack 尽可能缩小影响面，就不多赘述了。</p>
+<p>这个惊群问题的 Fix 过程，从一开始尝试从服务端进行修复再到客户端这边关闭分页，最后添加额外的判断关闭 Hack 行为，整个过程经过了大量讨论。我看到的是：一方面 K8S 作为一个发布了 20 余个版本的大型项目，已经有了不少历史包袱，导致每个行为变更都可能影响到很多人，因此每个修复都显得战战兢兢的，很多人即使是 Approver 都不一定清楚整个逻辑路径，到最后甚至不惜用一些 Hack 来实现问题修复。而另外一方面，过程中的讨论都是较为清晰和专业的，即使是线下讨论也会将讨论的文档和结论同步到 Github 给后人追踪。</p>
+<h2 id="现在修的怎么样了？"><a href="#现在修的怎么样了？" class="headerlink" title="现在修的怎么样了？"></a>现在修的怎么样了？</h2><p>至此，这个故事还没完全解决，还有两朵乌云：</p>
+<ol>
+<li><code>TooLargeResourceVersionError</code> 即使是在 1.18 的 API 和 SDK 组合下还是会继续发生，只不过能够重试后请求成功，而非 1.16 API + 1.18 SDK 的无限重试；</li>
+<li>在 Reflector 重启后，由于最新已经处理过 RV 的丢失，仍然可能会出现拿到『回到过去』的旧数据；</li>
+</ol>
+<p>为了解决这个问题，K8S 的 API 的维护者在 etcd <a target="_blank" rel="noopener" href="https://github.com/etcd-io/etcd/pull/9869">PR #9869</a> 了 <code>RequestProgress</code> 的功能。通过这个 API，可以让 etcd 的消费者通过很廉价的方式获取到当前 etcd 中最大的 RV。有了这个 RV，之后访问 API 的 WatchCache 的时候，就能够在不提供 RV 的情况下使用这个从 etcd 侧拿到的 RV，等到缓存追到这个版本后，可靠地返回最新的数据。通过这个机制：</p>
+<ol>
+<li>这样多实例时候 <code>kube-apiserver</code> 就算某组 G&#x2F;R 已经很久没有更新，Cache 的 RV 也可以得到有效的更新；</li>
+<li>Reflector 重启后，即使 RV 丢失请求无法携带 RV，获得的数据也必定是发起请求时间之后的 etcd 内的数据，类似执行了非常廉价的 <code>qruorm read</code>；</li>
+</ol>
+<p>值得一提的是，虽然这个 Bug 在 2018 年就已经被发现并有了上述的相关设计 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/enhancements/tree/master/keps/sig-api-machinery/2340-Consistent-reads-from-cache">KEP #2340</a>，但是这个功能截止目前还没有落地和实现，但其最新的设计可以在 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/enhancements/tree/master/keps/sig-api-machinery/3157-watch-list">KEP #3157</a> 中找到，目前似乎是计划在 1.26 实现（1.26 已经发布，看来已经鸽了）。</p>
+<p>除此以外，还有几个 KEP 是用来缓解&#x2F;修复上述问题的：</p>
+<ol>
+<li><a target="_blank" rel="noopener" href="https://github.com/kubernetes/enhancements/tree/master/keps/sig-api-machinery/2523-consistent-resource-versions-semantics">KEP #2523</a> : 这个提案看起来有点像是  <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/72170">PR #72170</a> 的后续（猜测），相关 Code 在 1.19 中得到实现 (<a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/91505">PR #91505</a>)。 由于没有FeatureGate控制，应该在 1.19 就可以用了；</li>
+<li><a target="_blank" rel="noopener" href="https://github.com/kubernetes/enhancements/tree/master/keps/sig-api-machinery/1904-efficient-watch-resumption">KEP #1904</a>:  这个提案使用了 etcd 的 <code>WithProgressNotify</code> 参数，使得 etcd 周期性的广播当前最新的 RV。以此为基础，API 将这个 RV 通过 BookMark 的方式推送至客户端，从而更新 Reflector 内的 RV，进而大幅度降低在 API 重启的时候导致的 relist 问题。这个功能在 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/94364">PR #94364</a> 得到实现，以 FeatureGate <code>EfficientWatchResumption</code> 控制，在 1.21 进入 Beta；</li>
+</ol>
+<h1 id="决定-结局"><a href="#决定-结局" class="headerlink" title="决定 &amp; 结局"></a>决定 &amp; 结局</h1><p>至此，我觉得这个问题的现象、根因、背景扩展都已经了解的差不多了，应该足够做决定了。那么收一下，由于我们的环境是 1.16，让客户端去改可能不太可能了：</p>
+<ol>
+<li>全面排查客户端没有足够的资源，无法推动；</li>
+<li>1.16 的 <code>client-go</code> 的确存在 relist &#x2F; restart 后会读到老数据的问题，回滚之后如果遇到问题还得背锅；</li>
+</ol>
+<p>如果 <code>kube-apiserver</code> 进行修改的话：</p>
+<ol>
+<li>修改范围应该是在  <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/72170">PR #72170</a> 之内，简单 cherrypick 了一下冲突可控，属于可以相对比较简单完成 cherrypick 的那种；</li>
+<li>这个 PR 做了两个事情：(1 修改了 etcd3 存储实现里对 RV 参数的语义，(2 给错误响应的  <code>details</code> 里加了 <code>cause</code> 字段；</li>
+<li>其中，语义的变化应该不会反应到我们的使用场景上：</li>
+</ol>
+<blockquote>
+<p>There is no in-tree code relying on it. We can’t entirely eliminate the possibility there is out-of-tree code relying on it. The conditions they’d have to meet are quite specific: (1) they’ve disabled the watch cache, or are using events, and (2) they’re performing a <code>List(... ResourceVersion: SomeSpecificRevision)</code> request and (3) they cannot tolerate receiving a more recent revision than the one they requested.</p>
+</blockquote>
+<p>   因为我们都启用了 <code>WatchCache</code>，因此这部分 API 的返回之前都是从 Cache 返回的，而实际 etcd 的 List 语义应该没有启用过，故应该就算包含这部分改动也没用关系。</p>
+<ol start="4">
+<li>由于 <code>cause</code> 字段在 API 定义中一直都有，如果只在这个异常发生的时候多返回一个字段：即手动cherrypick 这个改动里的一小部分应该可行的，只需要在 <a target="_blank" rel="noopener" href="https://github.com/jpbetz/kubernetes/blob/release-1.16/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go#L307">reflector.go#L307</a> 修改一行：<figure class="highlight patch"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="deletion">- return errors.NewTimeoutError(fmt.Sprintf(&quot;Too large resource version: %v, current: %v&quot;, resourceVersion, w.resourceVersion), 1)</span></span><br><span class="line"><span class="addition">+ err := errors.NewTimeoutError(fmt.Sprintf(&quot;Too large resource version: %v, current: %v&quot;, resourceVersion, w.resourceVersion), 1)</span></span><br><span class="line"><span class="addition">+ err.ErrStatus.Details.Causes = []metav1.StatusCause&#123;&#123;Message: tooLargeResourceVersionCauseMsg&#125;&#125;</span></span><br><span class="line"><span class="addition">+ return err</span></span><br></pre></td></tr></table></figure></li>
+</ol>
+<p>可见，这个风险是最小的，且完整的 cherrypick 似乎并没有额外的受益，暂时先这样吧。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>Reficul
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://reficul.io/2023/01/09/too-large-resource-version/" title="kube-apiserver 持续告警 KubeAPIErrorsHigh 调查">https://reficul.io/2023/01/09/too-large-resource-version/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fa fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Kubernetes/" rel="tag"># Kubernetes</a>
+              <a href="/tags/KubeAPIErrorsHigh/" rel="tag"># KubeAPIErrorsHigh</a>
+              <a href="/tags/Too-large-resource-version/" rel="tag"># Too large resource version</a>
+              <a href="/tags/kube-apiserver/" rel="tag"># kube-apiserver</a>
+              <a href="/tags/504/" rel="tag"># 504</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2021/02/21/why-am-i-afk-from-wow/" rel="prev" title="我是怎么从WoW AFK的">
+      <i class="fa fa-chevron-left"></i> 我是怎么从WoW AFK的
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2023/07/18/backup-truenas-to-oss/" rel="next" title="备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑">
+      备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Update-2023-1-25"><span class="nav-number">1.</span> <span class="nav-text">Update 2023.1.25</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%8E%B0%E8%B1%A1"><span class="nav-number">2.</span> <span class="nav-text">现象</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%B0%83%E6%9F%A5%E5%BC%AF%E8%B7%AF"><span class="nav-number">3.</span> <span class="nav-text">调查弯路</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%8E%9F%E5%9B%A0%E5%AE%9A%E4%BD%8D"><span class="nav-number">4.</span> <span class="nav-text">原因定位</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%BF%9B%E5%9D%91"><span class="nav-number">5.</span> <span class="nav-text">进坑</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BF%AE%E4%BA%86%EF%BC%8C%E4%BD%86%E6%B2%A1%E4%BF%AE%E5%A5%BD%E2%80%A6"><span class="nav-number">5.1.</span> <span class="nav-text">修了，但没修好…</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BF%AE%E4%B8%8D%E5%A5%BD%E4%BA%86%EF%BC%81"><span class="nav-number">5.2.</span> <span class="nav-text">修不好了！</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%A2%AB%E5%9B%9E%E6%BB%9A%E7%9A%84-PR-72170"><span class="nav-number">5.2.1.</span> <span class="nav-text">被回滚的 PR #72170</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%8E%B0%E5%9C%A8%E4%BF%AE%E7%9A%84%E6%80%8E%E4%B9%88%E6%A0%B7%E4%BA%86%EF%BC%9F"><span class="nav-number">5.3.</span> <span class="nav-text">现在修的怎么样了？</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%86%B3%E5%AE%9A-%E7%BB%93%E5%B1%80"><span class="nav-number">6.</span> <span class="nav-text">决定 &amp; 结局</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Reficul"
+      src="/images/icon.jpg">
+  <p class="site-author-name" itemprop="name">Reficul</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">15</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">46</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xuzhenglun" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:xuzhenglun@gmail.com" title="E-Mail → mailto:xuzhenglun@gmail.com" rel="noopener" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://twitter.com/xuzhenglun" title="Twitter → https:&#x2F;&#x2F;twitter.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-twitter"></i>Twitter</a>
+      </span>
+  </div>
+
+
+  <div class="links-of-blogroll motion-element">
+    <div class="links-of-blogroll-title">
+      <i class="fa fa-fw fa-link"></i>
+      Links
+    </div>
+    <ul class="links-of-blogroll-list">
+        <li class="links-of-blogroll-item">
+          <a href="https://farer.org/" title="https:&#x2F;&#x2F;farer.org&#x2F;" rel="noopener" target="_blank">Eric</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://sakeven.me/" title="https:&#x2F;&#x2F;sakeven.me" rel="noopener" target="_blank">Sakeven</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://reality0ne.com/" title="https:&#x2F;&#x2F;reality0ne.com" rel="noopener" target="_blank">realityOne</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://justjjy.com/" title="https:&#x2F;&#x2F;justjjy.com" rel="noopener" target="_blank">JJY</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://renlulu.github.io/" title="https:&#x2F;&#x2F;renlulu.github.io" rel="noopener" target="_blank">Renlulu</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://g.yannxia.top/" title="https:&#x2F;&#x2F;g.yannxia.top" rel="noopener" target="_blank">Summer</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://tomwei7.com/" title="https:&#x2F;&#x2F;tomwei7.com" rel="noopener" target="_blank">TomWei</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://yowenter.github.io/" title="https:&#x2F;&#x2F;yowenter.github.io" rel="noopener" target="_blank">TaoGe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://ylck.me/" title="https:&#x2F;&#x2F;ylck.me" rel="noopener" target="_blank">Ylck</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://wangzhezhe.github.io/" title="https:&#x2F;&#x2F;wangzhezhe.github.io&#x2F;" rel="noopener" target="_blank">Wangzhezhe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.jinwei.me/" title="https:&#x2F;&#x2F;blog.jinwei.me" rel="noopener" target="_blank">Clark</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.ihypo.net/" title="https:&#x2F;&#x2F;blog.ihypo.net" rel="noopener" target="_blank">Hypo</a>
+        </li>
+    </ul>
+  </div>
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2015 – 
+  <span itemprop="copyrightYear">2025</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Reficul</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.7.1/viz.js'></script>
+  <script>
+    String.prototype.replaceAll = function(search, replacement) {
+      var target = this;
+      return target.split(search).join(replacement);
+    };
+
+    let vizObjects = document.querySelectorAll('.graphviz')
+
+    for (let item of vizObjects) {
+      let svg = undefined
+      try {
+        svg = Viz(item.textContent.replaceAll('–', '--'), 'svg')
+      } catch(e) {
+        svg = `<pre class="error">${e}</pre>`
+      }
+      item.outerHTML = svg
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+  <script defer src="/lib/three/three.min.js"></script>
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  var disqus_config = function() {
+    this.page.url = "https://reficul.io/2023/01/09/too-large-resource-version/";
+    this.page.identifier = "2023/01/09/too-large-resource-version/";
+    this.page.title = "kube-apiserver 持续告警 KubeAPIErrorsHigh 调查";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://xuzhenglun.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

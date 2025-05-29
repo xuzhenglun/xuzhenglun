@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+    <script data-ad-client="ca-pub-2538407472813986" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"reficul.io","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="Shodowsocks是一个小有名气的代理工具，主要致力于减小流量特征，从而达到GFW无法对其进行定向的封杀的目的。Shadowsocks有多种语言的实现，本着学习一下原理的心态，看了一下其用Go版本的实现细节。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Shadowsocks-go 源码分析">
+<meta property="og:url" content="https://reficul.io/2016/05/12/Shadowsocks_go_source_code_analysis/index.html">
+<meta property="og:site_name" content="Reficul">
+<meta property="og:description" content="Shodowsocks是一个小有名气的代理工具，主要致力于减小流量特征，从而达到GFW无法对其进行定向的封杀的目的。Shadowsocks有多种语言的实现，本着学习一下原理的心态，看了一下其用Go版本的实现细节。">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2016-05-12T01:11:00.000Z">
+<meta property="article:modified_time" content="2025-05-29T17:21:18.452Z">
+<meta property="article:author" content="Reficul">
+<meta property="article:tag" content="ShadowSocks">
+<meta property="article:tag" content="go">
+<meta property="article:tag" content="sourcecode">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://reficul.io/2016/05/12/Shadowsocks_go_source_code_analysis/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Shadowsocks-go 源码分析 | Reficul</title>
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-57211109-1"></script>
+    <script>
+      if (CONFIG.hostname === location.hostname) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'UA-57211109-1');
+      }
+    </script>
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Reficul</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://reficul.io/2016/05/12/Shadowsocks_go_source_code_analysis/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/icon.jpg">
+      <meta itemprop="name" content="Reficul">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Reficul">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Shadowsocks-go 源码分析
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：5月 12 2016 1:11:00" itemprop="dateCreated datePublished" datetime="2016-05-12T01:11:00+00:00">5月 12 2016</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：5月 29 2025 17:21:18" itemprop="dateModified" datetime="2025-05-29T17:21:18+00:00">5月 29 2025</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Shadowsocks/" itemprop="url" rel="index"><span itemprop="name">Shadowsocks</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>Shodowsocks是一个小有名气的代理工具，主要致力于减小流量特征，从而达到GFW无法对其进行定向的封杀的目的。Shadowsocks有多种语言的实现，本着学习一下原理的心态，看了一下其用Go版本的实现细节。</p>
+<span id="more"></span>
+
+
+<h1 id="项目结构"><a href="#项目结构" class="headerlink" title="项目结构"></a>项目结构</h1><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br></pre></td><td class="code"><pre><span class="line">.</span><br><span class="line">├── CHANGELOG</span><br><span class="line">├── cmd</span><br><span class="line">│   ├── shadowsocks-httpget</span><br><span class="line">│   │   └── httpget.go</span><br><span class="line">│   ├── shadowsocks-local</span><br><span class="line">│   │   └── local.go        //ss-local主程序</span><br><span class="line">│   └── shadowsocks-server</span><br><span class="line">│       └── server.go       //ss-server主程序</span><br><span class="line">├── config.json</span><br><span class="line">├── deb                     //DEB打包配置</span><br><span class="line">│   ├── DEBIAN</span><br><span class="line">│   │   ├── conffiles</span><br><span class="line">│   │   ├── control</span><br><span class="line">│   │   ├── postinst</span><br><span class="line">│   │   ├── postrm</span><br><span class="line">│   │   └── prerm</span><br><span class="line">│   └── etc</span><br><span class="line">│       ├── init.d</span><br><span class="line">│       │   └── shadowsocks</span><br><span class="line">│       └── shadowsocks</span><br><span class="line">│           └── config.json</span><br><span class="line">├── LICENSE</span><br><span class="line">├── Makefile                //利用Makefile编译安装，安装位置在$GOPATH/bin</span><br><span class="line">├── README.md</span><br><span class="line">├── sample-config           //配置范例</span><br><span class="line">│   ├── client-multi-server.json</span><br><span class="line">│   └── server-multi-port.json</span><br><span class="line">├── script</span><br><span class="line">│   ├── build.sh</span><br><span class="line">│   ├── createdeb.sh</span><br><span class="line">│   ├── curl.sh</span><br><span class="line">│   ├── http.go</span><br><span class="line">│   ├── README.md</span><br><span class="line">│   ├── set-version.sh</span><br><span class="line">│   ├── shadowsocks.exe</span><br><span class="line">│   ├── test.sh</span><br><span class="line">│   └── win32build.bat</span><br><span class="line">├── shadowsocks             //实现了Shadowsocks包</span><br><span class="line">│   ├── config.go           //配置解析</span><br><span class="line">│   ├── config_test.go</span><br><span class="line">│   ├── conn.go             //实现了shadowsocks.conn接口，类似net.conn</span><br><span class="line">│   ├── encrypt.go          //一个封装好的加密库</span><br><span class="line">│   ├── encrypt_test.go</span><br><span class="line">│   ├── leakybuf.go         //一个缓存的实现，避免频繁申请释放内存</span><br><span class="line">│   ├── log.go</span><br><span class="line">│   ├── mergesort.go        //快排(历史遗留问题？Initial commit用到了，现在最新的代码没找到使用)</span><br><span class="line">│   ├── pipe.go             //对shadowsocks.conn的一个管道封转，用于连接建立后的流量转发</span><br><span class="line">│   ├── proxy.go            //封装的shadsowsock库，直接与远端ss-server建立连接</span><br><span class="line">│   ├── testdata</span><br><span class="line">│   │   ├── deprecated-client-multi-server.json</span><br><span class="line">│   │   └── noserver.json</span><br><span class="line">│   └── util.go             //工具集</span><br><span class="line">└── TODO</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>没有实现关于UDP的支持，没有支持Tcp fast open，GoLang的官方网络库貌似还没有支持TFO</p>
+</blockquote>
+<hr>
+<h1 id="核心组件"><a href="#核心组件" class="headerlink" title="核心组件"></a>核心组件</h1><ol>
+<li><p>shadowsocks&#x2F;conn.go<br> 其具体的通信过程为：  </p>
+<ol>
+<li><p>调用RawAddr函数，获取目标服务器地址和端口，并将其封装为以下的格式:  </p>
+ <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">+------+-----+-----------------------+------------------+-----------+</span><br><span class="line">| ATYP | Len |  Destination Address  | Destination Port | HMAC-SHA1 |</span><br><span class="line">+------+-----+-----------------------+------------------+-----------+</span><br><span class="line">|  1   |  1  |      Variable         |         2        |  10 可选  |</span><br><span class="line">+------+-----+-----------------------+------------------+-----------+</span><br></pre></td></tr></table></figure>
+<ul>
+<li>ATPY写死了为0x03，其代表了地址类型为域名</li>
+<li>Len是地址（域名）的长度</li>
+<li>随后的端口是网络序-大端写入的</li>
+<li>HMAC校验，当开启一次验证之后会附加在最后，占地10Byte，由IV+key为Key，对前面所有信息的摘要。</li>
+</ul>
+</li>
+<li><p>DialWithRawAddr函数拿到以上的请求，ss服务器地址以及加密信息之后，向ss服务器发起tcp连接：</p>
+</li>
+</ol>
+<p> 首先如果OTA被启用了，会提前生成IV，并立即向ss服务器发送，随后通过shadowsocks.write完成加密Request并发往ss服务器。<br>     <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">+-------+---------------+</span><br><span class="line">|  IV   | Encryped Data |</span><br><span class="line">+-------+---------------+</span><br><span class="line">| Fixed |    Variable   |</span><br><span class="line">+-------+---------------+</span><br></pre></td></tr></table></figure></p>
+<p> 如果OTA为启用，则会直接把请求用Write函数尝试发出，但是发现加密方法未初始化，则初始化IV与Chipher，并将IV附加在加密信息之后一起发出。<br> 看Shadowsocks文档显示应该是同时发出的，但是因为tcp是个流，貌似也可以？</p>
+ <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">+-------+   +---------------+</span><br><span class="line">|  IV   |   | Encryped Data |</span><br><span class="line">+-------+   +---------------+</span><br><span class="line">| Fixed |   |    Variable   |</span><br><span class="line">+-------+   +---------------+</span><br></pre></td></tr></table></figure>
+
+
+<p> 如果一切正常，则返回连接句柄。<br> 此时ss-local与ss-server应该已经建立一个TCP连接，数据发送接受已经就绪。而且ss-local已经生成IV与加密方法，ss-server也已经接受到IV并完成了解密方法的初始化。<br> 至此，握手阶段结束，剩下的就是pipe通信阶段。</p>
+</li>
+<li><p>shadowsocks&#x2F;pipi.go</p>
+<p> 这个文件中的函数用io包对shadowsocks.conn进行了一个封转，实现了对流量的转发。</p>
+<p> 转发中，因为已经完成了握手，则数据直接通过pipe进行转发。  </p>
+<ol>
+<li>在OTA未启用时，即是简单的一个循环，除非转发中出现异常，否则无脑转发。</li>
+<li>在OTA启用后，则需要对数据解包，对数据进行校验，只有通过才能被转发，否则pipe将被关闭.</li>
+</ol>
+<p> 解密之后，包结构如图：第3到12字节为HMAC-SHA1验证信息，是由IV+chunkId为Key，对DATA做的HMAC摘要，本地计算后与包中的相等，则校验通过。</p>
+</li>
+</ol>
+  <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">+----------+-----------+----------+----</span><br><span class="line">| DATA.LEN | HMAC-SHA1 |   DATA   | ...</span><br><span class="line">+----------+-----------+----------+----</span><br><span class="line">|     2    |     10    | Variable | ...</span><br><span class="line">+----------+-----------+----------+----</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li><p>cmd&#x2F;shadowsocks-server&#x2F;server.go以及cmd&#x2F;shadowsocks-local&#x2F;local.go</p>
+<p> 这个文件为ss-server与ss-local的主程序，完成了代理服务器的作用。  </p>
+<ol>
+<li>local.go这个程序在本地架设了一个Socks5服务器，接收来自浏览器等应用程序的请求。  <ol>
+<li>依据socks5协议，应用程序会向SOCKS5服务器发送一个握手请求，SOCKS5服务器返回正确信息则握手成功。  </li>
+<li>随后应用程序向SOCKS5服务器发送代理请求，此时我们的local会解析这个请求，并告诉应用程序，请求已经被接收。随后解析请求，获取目标服务器的地址与端口，用之前shadowsocks.conn中的Dial函数对ss服务器发起请求，等待服务器连接建立，随后两个加密pipe建立，转发来自应用程序到目标服务器的所有流量。  </li>
+<li>应用程序在收到SOCKS5服务器返回的请求接受回复后，开始向SOCKS5发送数据，数据经过local转发到server再转发到真实的服务器，并原路返回。</li>
+</ol>
+</li>
+<li>server.go这个程序在墙外监听着端口，并时刻准备与local握手，建立pipe，转发数据。<br> GO版本的Server实现了多端口不同密码，即实现了多用户不同密码不同端口。local实现了多服务器，并按照握手失败次数加权，优先连接优质服务器。</li>
+</ol>
+</li>
+</ol>
+<hr>
+<h1 id="一次验证："><a href="#一次验证：" class="headerlink" title="一次验证："></a>一次验证：</h1><p> 每次向io接口中写入数据，或者验证的时候，都会自增一次ChunkID，ChunkID+随机的IV，保证以往的数据包不能被用以重放攻击。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>Reficul
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://reficul.io/2016/05/12/Shadowsocks_go_source_code_analysis/" title="Shadowsocks-go 源码分析">https://reficul.io/2016/05/12/Shadowsocks_go_source_code_analysis/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fa fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/ShadowSocks/" rel="tag"># ShadowSocks</a>
+              <a href="/tags/go/" rel="tag"># go</a>
+              <a href="/tags/sourcecode/" rel="tag"># sourcecode</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2016/04/19/Golang-byte-string-dont-share-menory/" rel="prev" title="Golang中[]Byte与string类转换时内存并不共享">
+      <i class="fa fa-chevron-left"></i> Golang中[]Byte与string类转换时内存并不共享
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2019/02/09/go-generic-type-with-blaze/" rel="next" title="用Blaze实现Golang泛型">
+      用Blaze实现Golang泛型 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%A1%B9%E7%9B%AE%E7%BB%93%E6%9E%84"><span class="nav-number">1.</span> <span class="nav-text">项目结构</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%A0%B8%E5%BF%83%E7%BB%84%E4%BB%B6"><span class="nav-number">2.</span> <span class="nav-text">核心组件</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%B8%80%E6%AC%A1%E9%AA%8C%E8%AF%81%EF%BC%9A"><span class="nav-number">3.</span> <span class="nav-text">一次验证：</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Reficul"
+      src="/images/icon.jpg">
+  <p class="site-author-name" itemprop="name">Reficul</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">15</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">46</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xuzhenglun" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:xuzhenglun@gmail.com" title="E-Mail → mailto:xuzhenglun@gmail.com" rel="noopener" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://twitter.com/xuzhenglun" title="Twitter → https:&#x2F;&#x2F;twitter.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-twitter"></i>Twitter</a>
+      </span>
+  </div>
+
+
+  <div class="links-of-blogroll motion-element">
+    <div class="links-of-blogroll-title">
+      <i class="fa fa-fw fa-link"></i>
+      Links
+    </div>
+    <ul class="links-of-blogroll-list">
+        <li class="links-of-blogroll-item">
+          <a href="https://farer.org/" title="https:&#x2F;&#x2F;farer.org&#x2F;" rel="noopener" target="_blank">Eric</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://sakeven.me/" title="https:&#x2F;&#x2F;sakeven.me" rel="noopener" target="_blank">Sakeven</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://reality0ne.com/" title="https:&#x2F;&#x2F;reality0ne.com" rel="noopener" target="_blank">realityOne</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://justjjy.com/" title="https:&#x2F;&#x2F;justjjy.com" rel="noopener" target="_blank">JJY</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://renlulu.github.io/" title="https:&#x2F;&#x2F;renlulu.github.io" rel="noopener" target="_blank">Renlulu</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://g.yannxia.top/" title="https:&#x2F;&#x2F;g.yannxia.top" rel="noopener" target="_blank">Summer</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://tomwei7.com/" title="https:&#x2F;&#x2F;tomwei7.com" rel="noopener" target="_blank">TomWei</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://yowenter.github.io/" title="https:&#x2F;&#x2F;yowenter.github.io" rel="noopener" target="_blank">TaoGe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://ylck.me/" title="https:&#x2F;&#x2F;ylck.me" rel="noopener" target="_blank">Ylck</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://wangzhezhe.github.io/" title="https:&#x2F;&#x2F;wangzhezhe.github.io&#x2F;" rel="noopener" target="_blank">Wangzhezhe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.jinwei.me/" title="https:&#x2F;&#x2F;blog.jinwei.me" rel="noopener" target="_blank">Clark</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.ihypo.net/" title="https:&#x2F;&#x2F;blog.ihypo.net" rel="noopener" target="_blank">Hypo</a>
+        </li>
+    </ul>
+  </div>
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2015 – 
+  <span itemprop="copyrightYear">2025</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Reficul</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.7.1/viz.js'></script>
+  <script>
+    String.prototype.replaceAll = function(search, replacement) {
+      var target = this;
+      return target.split(search).join(replacement);
+    };
+
+    let vizObjects = document.querySelectorAll('.graphviz')
+
+    for (let item of vizObjects) {
+      let svg = undefined
+      try {
+        svg = Viz(item.textContent.replaceAll('–', '--'), 'svg')
+      } catch(e) {
+        svg = `<pre class="error">${e}</pre>`
+      }
+      item.outerHTML = svg
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+  <script defer src="/lib/three/three.min.js"></script>
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  var disqus_config = function() {
+    this.page.url = "https://reficul.io/2016/05/12/Shadowsocks_go_source_code_analysis/";
+    this.page.identifier = "2016/05/12/Shadowsocks_go_source_code_analysis/";
+    this.page.title = "Shadowsocks-go 源码分析";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://xuzhenglun.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+    <script data-ad-client="ca-pub-2538407472813986" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"reficul.io","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="Golang是一门工程语言，语法元素很少很容易掌握。从而，只要不是太扯的人写出来的代码理应相差不大，并能够很快被人理解。泛型在现代编程语言中被广泛使用，这里不谈Go缺失泛型是否是一种糟糕的设计，纯粹前段时间在gvisor的代码中看见一种实现泛型的方式比较新奇，因此拿来记录一下。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="用Blaze实现Golang泛型">
+<meta property="og:url" content="https://reficul.io/2019/02/09/go-generic-type-with-blaze/index.html">
+<meta property="og:site_name" content="Reficul">
+<meta property="og:description" content="Golang是一门工程语言，语法元素很少很容易掌握。从而，只要不是太扯的人写出来的代码理应相差不大，并能够很快被人理解。泛型在现代编程语言中被广泛使用，这里不谈Go缺失泛型是否是一种糟糕的设计，纯粹前段时间在gvisor的代码中看见一种实现泛型的方式比较新奇，因此拿来记录一下。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://reficul.io/images/6/go-generic.gif">
+<meta property="article:published_time" content="2019-02-09T04:45:16.000Z">
+<meta property="article:modified_time" content="2025-05-29T17:21:18.452Z">
+<meta property="article:author" content="Reficul">
+<meta property="article:tag" content="Golang">
+<meta property="article:tag" content="Balze">
+<meta property="article:tag" content="generic-type">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://reficul.io/images/6/go-generic.gif">
+
+<link rel="canonical" href="https://reficul.io/2019/02/09/go-generic-type-with-blaze/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>用Blaze实现Golang泛型 | Reficul</title>
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-57211109-1"></script>
+    <script>
+      if (CONFIG.hostname === location.hostname) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'UA-57211109-1');
+      }
+    </script>
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Reficul</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://reficul.io/2019/02/09/go-generic-type-with-blaze/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/icon.jpg">
+      <meta itemprop="name" content="Reficul">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Reficul">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          用Blaze实现Golang泛型
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2月 9 2019 4:45:16" itemprop="dateCreated datePublished" datetime="2019-02-09T04:45:16+00:00">2月 9 2019</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：5月 29 2025 17:21:18" itemprop="dateModified" datetime="2025-05-29T17:21:18+00:00">5月 29 2025</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/Golang/" itemprop="url" rel="index"><span itemprop="name">Golang</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>Golang是一门工程语言，语法元素很少很容易掌握。从而，只要不是太扯的人写出来的代码理应相差不大，并能够很快被人理解。泛型在现代编程语言中被广泛使用，这里不谈Go缺失泛型是否是一种糟糕的设计，纯粹前段时间在<code>gvisor</code>的代码中看见一种实现泛型的方式比较新奇，因此拿来记录一下。</p>
+<span id="more"></span>
+
+<h2 id="老套路"><a href="#老套路" class="headerlink" title="老套路"></a>老套路</h2><p>由于Go本身并不支持泛型，常见的编程套路有以下几种：</p>
+<ol>
+<li>尽可能的重复自己：常见食用方式即使用<code>vim</code>宏、<code>sublime</code>、<code>vscode</code>提供的多行编辑与正则替换功能，来达到Write Once, Paste Anywhere的目的。这也是广大人民最喜闻乐见的黑Go的方式，比如下面这张图：</li>
+</ol>
+<p><img src="/images/6/go-generic.gif" alt="各路神仙利用编辑器复制替换"></p>
+<ol start="2">
+<li><p>尽可能的使用空接口和map：为了实践Don’t Repeat Yourself的金玉良言，各路神仙纷纷使用起<code>interface&#123;&#125;</code>配合嵌套<code>map[string]interface&#123;&#125;</code>.完美,要用啥再下断言。毕竟<code>超过两次的就需要抽象了</code>，而空接口是一切抽象最终形态: 只要你想，空接口这种抽象能够装下整个宇宙。</p>
+</li>
+<li><p>利用工具生成代码：整一个模板抠几个洞，佐上Jinja2、Mustache、Go Template啥的，基于字符串把我要的类型替换进去。啥？你说基于字符串的替换没有语义，不能用编译器检查与法还容易错？拜托，又不是不能用，要啥自行车？至于自动化嘛，其实<code>go generate</code>还是能用的，至少比没有好对吧。</p>
+</li>
+</ol>
+<h2 id="新亮点"><a href="#新亮点" class="headerlink" title="新亮点"></a>新亮点</h2><p><code>gvisor</code>项目里，<code>third_party/gvsync</code>这个包利用了Blaze+一个小工具，实现了一个简单的泛型方案。虽然不可能从语言级别上让出发已久的Go支持泛型，不过这也是一种比较优雅的方案了。这个方案本质上属于上面的套路3，是一种基于模板的泛型方案，但是更精致一些。</p>
+<ol>
+<li><p>依赖于构建工具<code>Balze</code>，在构建的时候按需生成代码。模板只写一份，哪个包用到这个泛型算法，就在那个中声明依赖和目标类型即可。而不是在泛型算法提供者那生成一大堆wrapper，真正做到了泛型想做到的解耦。</p>
+</li>
+<li><p>类型安全：模板只是一个普通的Go源代码文件，可以被编译器进行语法检查，甚至运行测试。</p>
+</li>
+<li><p>基于AST，而不是简单的字符串替换。直接操作抽象语法树，把模板源代码文件中的某一个类型替换为目标类型，不但保证序列化后的代码一定合法，而且实现了如果出现同名的元素不会被错误的替换，甚至在新的子作用域中，不会替换自作用域中同名的元素。</p>
+</li>
+</ol>
+<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><p>要实现这个功能，需要一个命令行工具对模板进行渲染，以及构建系统的支持从而实现自动化构建。</p>
+<h3 id="渲染工具"><a href="#渲染工具" class="headerlink" title="渲染工具"></a>渲染工具</h3><p>这个渲染工具是<code>gvisor</code>为了在项目里使用而写的，并非一个专业的渲染模板。但是就功能上而言，应该已经能够胜任Go在泛型渲染上的需求。这个工具的代码位于<code>tools/go_generics</code>，主要功能就在此的3个文件之内，不到500行代码里。处理的流程大致按照以下步骤：</p>
+<ol>
+<li>将单个Go源码文件读入内存并利用标准库中自带的Parser解析到AST；</li>
+<li>把注释和import信息统计进<code>map</code>，以供生成代码的时候去除不需要的注释和依赖包；</li>
+<li>遍历AST，对Global作用域内的节点以及别处的引用按照Cmd Flag中的设置进行替换；</li>
+<li>遍历AST，删除原始类型的定义； </li>
+<li>依照魔改后的AST，对照过程（2）中<code>map</code>中的信息重新生成新的Go源码。</li>
+</ol>
+<p>利用这个工具，能够做到一下事情：</p>
+<ol>
+<li>将模板中定义的一个类型按照Go的语义重构成一个新的类型；</li>
+<li>将模板中定义的用来占位的类型以及其方法完全删除；</li>
+<li>将模板中的类型以及函数添加后缀，并修改此类型的引用（例如类型断言等）；</li>
+<li>修改全局定义的常量以及包名。</li>
+</ol>
+<h3 id="构建工具集成"><a href="#构建工具集成" class="headerlink" title="构建工具集成"></a>构建工具集成</h3><p>Blaze的类Python的语法提供了极大的自由度，在<code>tools/go_generics/defs.blz</code>中定义了上述命令行工具的wrapper。利用这个封装，任何模块下的BUILD脚本都可以import这个定义文件，从而支持泛型模板的渲染。</p>
+<ol>
+<li><code>_go_template_instance_impl</code>实现了对命令行工具的封装，把命令行的Flag都封装成了一个配置对象。</li>
+<li>在BUILD中import上述定义文件，比如<code>third_party/gvsync</code>。在这个包里，<code>generic_atomicptr.go</code>和<code>generic_seqatomic.go</code>便是一个泛型。以后者为例，使用这个泛型的测试的BUILD文件：<code>third_party/gvsync/seqatomictest/BUILD</code>中所定义的：<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">go_template_instance(</span><br><span class="line">    name = <span class="string">&quot;seqatomic_int&quot;</span>,</span><br><span class="line">    out = <span class="string">&quot;seqatomic_int.go&quot;</span>,</span><br><span class="line">    package = <span class="string">&quot;seqatomic&quot;</span>,</span><br><span class="line">    suffix = <span class="string">&quot;Int&quot;</span>,</span><br><span class="line">    template = <span class="string">&quot;//third_party/gvsync:generic_seqatomic&quot;</span>,</span><br><span class="line">    types = &#123;</span><br><span class="line">        <span class="string">&quot;Value&quot;</span>: <span class="string">&quot;int&quot;</span>,</span><br><span class="line">    &#125;,</span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+将<code>third_party/gvsync/seqatomic_unsafe.go</code>作为模板，将Value类型换成int类型，并在导出的方法和类型后添加Int后缀。比如原本的<code>func SeqAtomicLoad(sc *gvsync.SeqCount, ptr *Value) Value</code>方法，经过渲染的结果则为<code>func SeqAtomicLoadInt(sc *gvsync.SeqCount, ptr *int) int</code>。</li>
+</ol>
+<h2 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h2><p>Go没有泛型的支持，的确对代码的表现能力进行了极大的限制；而众多泛型的山寨版本也没一个好用的，本文提到的这种方式至少也提供了一种尝试。好处：泛型算法提供者和使用者解耦了，使用源生Go代码作为模板，支持测试和补全等；坏处：使用难度较高，心智负担不比直接支持泛型低，甚至更高。</p>
+<p>所以，Go Sucks</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>Reficul
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://reficul.io/2019/02/09/go-generic-type-with-blaze/" title="用Blaze实现Golang泛型">https://reficul.io/2019/02/09/go-generic-type-with-blaze/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fa fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Golang/" rel="tag"># Golang</a>
+              <a href="/tags/Balze/" rel="tag"># Balze</a>
+              <a href="/tags/generic-type/" rel="tag"># generic-type</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2016/05/12/Shadowsocks_go_source_code_analysis/" rel="prev" title="Shadowsocks-go 源码分析">
+      <i class="fa fa-chevron-left"></i> Shadowsocks-go 源码分析
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2019/02/19/go-dark-magic-1/" rel="next" title="Golang黑魔法(1)：使用其他包中未导出的函数">
+      Golang黑魔法(1)：使用其他包中未导出的函数 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%80%81%E5%A5%97%E8%B7%AF"><span class="nav-number">1.</span> <span class="nav-text">老套路</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%96%B0%E4%BA%AE%E7%82%B9"><span class="nav-number">2.</span> <span class="nav-text">新亮点</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%86%E8%8A%82"><span class="nav-number">3.</span> <span class="nav-text">细节</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%B8%B2%E6%9F%93%E5%B7%A5%E5%85%B7"><span class="nav-number">3.1.</span> <span class="nav-text">渲染工具</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9E%84%E5%BB%BA%E5%B7%A5%E5%85%B7%E9%9B%86%E6%88%90"><span class="nav-number">3.2.</span> <span class="nav-text">构建工具集成</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%BB%93%E8%AE%BA"><span class="nav-number">4.</span> <span class="nav-text">结论</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Reficul"
+      src="/images/icon.jpg">
+  <p class="site-author-name" itemprop="name">Reficul</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">15</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">46</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xuzhenglun" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:xuzhenglun@gmail.com" title="E-Mail → mailto:xuzhenglun@gmail.com" rel="noopener" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://twitter.com/xuzhenglun" title="Twitter → https:&#x2F;&#x2F;twitter.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-twitter"></i>Twitter</a>
+      </span>
+  </div>
+
+
+  <div class="links-of-blogroll motion-element">
+    <div class="links-of-blogroll-title">
+      <i class="fa fa-fw fa-link"></i>
+      Links
+    </div>
+    <ul class="links-of-blogroll-list">
+        <li class="links-of-blogroll-item">
+          <a href="https://farer.org/" title="https:&#x2F;&#x2F;farer.org&#x2F;" rel="noopener" target="_blank">Eric</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://sakeven.me/" title="https:&#x2F;&#x2F;sakeven.me" rel="noopener" target="_blank">Sakeven</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://reality0ne.com/" title="https:&#x2F;&#x2F;reality0ne.com" rel="noopener" target="_blank">realityOne</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://justjjy.com/" title="https:&#x2F;&#x2F;justjjy.com" rel="noopener" target="_blank">JJY</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://renlulu.github.io/" title="https:&#x2F;&#x2F;renlulu.github.io" rel="noopener" target="_blank">Renlulu</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://g.yannxia.top/" title="https:&#x2F;&#x2F;g.yannxia.top" rel="noopener" target="_blank">Summer</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://tomwei7.com/" title="https:&#x2F;&#x2F;tomwei7.com" rel="noopener" target="_blank">TomWei</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://yowenter.github.io/" title="https:&#x2F;&#x2F;yowenter.github.io" rel="noopener" target="_blank">TaoGe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://ylck.me/" title="https:&#x2F;&#x2F;ylck.me" rel="noopener" target="_blank">Ylck</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://wangzhezhe.github.io/" title="https:&#x2F;&#x2F;wangzhezhe.github.io&#x2F;" rel="noopener" target="_blank">Wangzhezhe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.jinwei.me/" title="https:&#x2F;&#x2F;blog.jinwei.me" rel="noopener" target="_blank">Clark</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.ihypo.net/" title="https:&#x2F;&#x2F;blog.ihypo.net" rel="noopener" target="_blank">Hypo</a>
+        </li>
+    </ul>
+  </div>
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2015 – 
+  <span itemprop="copyrightYear">2025</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Reficul</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.7.1/viz.js'></script>
+  <script>
+    String.prototype.replaceAll = function(search, replacement) {
+      var target = this;
+      return target.split(search).join(replacement);
+    };
+
+    let vizObjects = document.querySelectorAll('.graphviz')
+
+    for (let item of vizObjects) {
+      let svg = undefined
+      try {
+        svg = Viz(item.textContent.replaceAll('–', '--'), 'svg')
+      } catch(e) {
+        svg = `<pre class="error">${e}</pre>`
+      }
+      item.outerHTML = svg
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+  <script defer src="/lib/three/three.min.js"></script>
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  var disqus_config = function() {
+    this.page.url = "https://reficul.io/2019/02/09/go-generic-type-with-blaze/";
+    this.page.identifier = "2019/02/09/go-generic-type-with-blaze/";
+    this.page.title = "用Blaze实现Golang泛型";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://xuzhenglun.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

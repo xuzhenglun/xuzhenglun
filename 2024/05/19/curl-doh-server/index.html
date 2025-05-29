@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+    <script data-ad-client="ca-pub-2538407472813986" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"reficul.io","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="由于个人使用 https_dns_proxy 配合代理服务器，从而来解决 DNS 污染的问题。但是最近发现针对部分国内的 CDN 返回的地址都是针对代理服务器的IP进行的优化，而这部分 IP 莫名其妙又不在国内 IP 的段内从而导致直连访问，最终导致访问异常缓慢甚至无法正确返回。 在解决这个问题的这个过程中就需要对 DNS Server 进行一系列的查询测试，因此做了一些研究有了这个文章。这个文章">
+<meta property="og:type" content="article">
+<meta property="og:title" content="用 cURL 进行 DoH 模式下的 EDNS 查询测试">
+<meta property="og:url" content="https://reficul.io/2024/05/19/curl-doh-server/index.html">
+<meta property="og:site_name" content="Reficul">
+<meta property="og:description" content="由于个人使用 https_dns_proxy 配合代理服务器，从而来解决 DNS 污染的问题。但是最近发现针对部分国内的 CDN 返回的地址都是针对代理服务器的IP进行的优化，而这部分 IP 莫名其妙又不在国内 IP 的段内从而导致直连访问，最终导致访问异常缓慢甚至无法正确返回。 在解决这个问题的这个过程中就需要对 DNS Server 进行一系列的查询测试，因此做了一些研究有了这个文章。这个文章">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://reficul.io/images/curl-doh-server/demo.jpg">
+<meta property="article:published_time" content="2024-05-19T17:49:31.000Z">
+<meta property="article:modified_time" content="2025-05-29T17:21:18.452Z">
+<meta property="article:author" content="Reficul">
+<meta property="article:tag" content="DNS">
+<meta property="article:tag" content="DoH">
+<meta property="article:tag" content="EDNS">
+<meta property="article:tag" content="dig">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://reficul.io/images/curl-doh-server/demo.jpg">
+
+<link rel="canonical" href="https://reficul.io/2024/05/19/curl-doh-server/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>用 cURL 进行 DoH 模式下的 EDNS 查询测试 | Reficul</title>
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-57211109-1"></script>
+    <script>
+      if (CONFIG.hostname === location.hostname) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'UA-57211109-1');
+      }
+    </script>
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Reficul</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://reficul.io/2024/05/19/curl-doh-server/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/icon.jpg">
+      <meta itemprop="name" content="Reficul">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Reficul">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          用 cURL 进行 DoH 模式下的 EDNS 查询测试
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：5月 19 2024 17:49:31" itemprop="dateCreated datePublished" datetime="2024-05-19T17:49:31+00:00">5月 19 2024</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：5月 29 2025 17:21:18" itemprop="dateModified" datetime="2025-05-29T17:21:18+00:00">5月 29 2025</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/DNS/" itemprop="url" rel="index"><span itemprop="name">DNS</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>由于个人使用 <a target="_blank" rel="noopener" href="https://github.com/aarond10/https_dns_proxy">https_dns_proxy</a> 配合代理服务器，从而来解决 DNS 污染的问题。但是最近发现针对部分国内的 CDN 返回的地址都是针对代理服务器的IP进行的优化，而这部分 IP 莫名其妙又不在国内 IP 的段内从而导致直连访问，最终导致访问异常缓慢甚至无法正确返回。 在解决这个问题的这个过程中就需要对 DNS Server 进行一系列的查询测试，因此做了一些研究有了这个文章。这个文章包含了 DNS 优化的主流方案原理。此外由于主流的 DNS 工具都不支持 DoH，为了方便测试也提供了一个 Tricky 的方式来测试 DoH 查询。</p>
+<span id="more"></span>
+
+<p>发生问题的是 <code>g.alicdn.com</code> 这个地址，由于这个很明显是一个经典的 DNS 优化问题，所以很自然的想用 <code>dig</code> 去测试下。测试结果显示这个域名当时如果直接通过 ISP 提供的 DNS 进行查询返回的地址是没问题的，在我圣何塞的机器上对 <code>1.1.1.1</code> 进行查询返回的另外一个地址在圣何塞机器上也是没问题的，但是在如果大陆则无法正确访问，这个问题直接导致了我无法打开任何阿里系的网站。</p>
+<h1 id="DNS-优化方案"><a href="#DNS-优化方案" class="headerlink" title="DNS 优化方案"></a>DNS 优化方案</h1><p>由于通常 DNS 提供商都会返回的 IP 地址都会尽可能靠近浏览器从而起到加速的作用。要实现这个功能则必须先拿到发起查询的源 IP，而关于如何获取源 IP 方面就比较重要了，技术上有两种手段：<code>EDNS</code> 或者对 DNS 进行 anycast。</p>
+<h2 id="EDNS"><a href="#EDNS" class="headerlink" title="EDNS"></a>EDNS</h2><p>在 EDNS 模式下，对 DNS 的查询请求做了扩展，在其中加入了 <code>subnet</code> 部分的信息。DNS Server 可以直接从 DNS 查询的请求中获取客户端的源 IP 地址，并针对性的做出响应。但是这样做的好处很明显：简单可靠。即使请求被经过了层层 NAT 或者代理，四层的源 IP 可能早就丢失了的情况下也能精确返回正确的优化。但是甘蔗没有两头甜，凡是都有代价：</p>
+<ol>
+<li><p>请求很难缓存<br> 由于 DNS 是一个递归查询模型，即在当前 DNS 服务器对查询结果未知的情况下会递归去上游的服务器进行递归查询，并将结果缓存起来。通常情况下，缓存只需要考虑以域名为 key，以 A&#x2F;AAAA 等记录为 Value 进行构建即可，即相同的域名返回相同的结果。但是在加入 <code>subnet</code> 参数后就整整增加了一个维度后，需要缓存的数据量就会成倍放大，因此 DNS Server 可能会选择不缓存这类请求从而导致整体查询变慢。</p>
+</li>
+<li><p>存在用户隐私泄漏风险<br> 通常情况下，由于缓存服务器的存在相当一大部分请求将会由下游的 DNS 缓存并返回，只能看到来自下游 DNS 服务器的请求，而权威 DNS 服务器并不能准确知道哪些客户端发起了多少请求。但是当引入 EDNS 后，每次带 <code>subnet</code> 的请求权威 DNS 服务器都能知道请求来源的大致范围。</p>
+</li>
+</ol>
+<h2 id="Anycast-DNS"><a href="#Anycast-DNS" class="headerlink" title="Anycast DNS"></a>Anycast DNS</h2><p>相比 EDNS 方案，Anycast 方案走了另外一个极端，这个方案里并没有扩展 DNS 服务器的请求内容，而是利用 Anycast 技术将一个 IP 地址关联到 N 个服务器上，而此时任何一个 DNS 服务器都可以对这个查询进行响应。此时只需要铺开足够多的服务器，从而让离客户端最近的服务器来提供服务，就能够返回优化过后的 IP 地址。此时上面的两个缺点就不存在了：由于 DNS 服务器其实并没有理解<code>subnet</code>语义，因此他还是只需要简单缓存就行了。此外，由于没有携带 <code>subnet</code> 信息来对权威 DNS 服务器进行递归查询，因此权威DNS 服务器看到的只有这个下游 DNS 服务器而已，充分避免了用户隐私泄漏的问题。至于代价的话，就是这样的 DNS 无法穿透 NAT 或者代理，从而可能导致查询结果的不准确。此外这种模式依赖广泛的服务器部署，可能成本会高不少吧。</p>
+<h1 id="验证优化效果"><a href="#验证优化效果" class="headerlink" title="验证优化效果"></a>验证优化效果</h1><p>通过 <code>dig</code> 命令对 <code>1.1.1.1</code> 直接发起域名查询, 发现 EDNS 并不工作，返回的永远是 <code>47.246.24.171</code> 和 <code>47.246.24.170</code>。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#dig g.alicdn.com @1.1.1.1</span></span><br><span class="line"></span><br><span class="line">; &lt;&lt;&gt;&gt; DiG 9.11.4-P2-RedHat-9.11.4-26.P2.3.alios7.7 &lt;&lt;&gt;&gt; g.alicdn.com @1.1.1.1</span><br><span class="line">;; global options: +cmd</span><br><span class="line">;; Got answer:</span><br><span class="line">;; -&gt;&gt;HEADER&lt;&lt;- <span class="string">opcode: QUERY, status: NOERROR, id: 19443</span></span><br><span class="line"><span class="string">;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 1</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">;; OPT PSEUDOSECTION:</span></span><br><span class="line"><span class="string">; EDNS: version: 0, flags:; udp: 1232</span></span><br><span class="line"><span class="string">;; QUESTION SECTION:</span></span><br><span class="line"><span class="string">;g.alicdn.com.			IN	A</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">;; ANSWER SECTION:</span></span><br><span class="line"><span class="string">g.alicdn.com.		597	IN	CNAME	g.alicdn.com.danuoyi.alicdn.com.</span></span><br><span class="line"><span class="string">g.alicdn.com.danuoyi.alicdn.com. 57 IN	A	47.246.24.171</span></span><br><span class="line"><span class="string">g.alicdn.com.danuoyi.alicdn.com. 57 IN	A	47.246.24.170</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">;; Query time: 199 msec</span></span><br><span class="line"><span class="string">;; SERVER: 1.1.1.1#53(1.1.1.1)</span></span><br><span class="line"><span class="string">;; WHEN: Sun May 19 19:31:25 CST 2024</span></span><br><span class="line"><span class="string">;; MSG SIZE  rcvd: 108</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">#</span></span><br><span class="line"><span class="string">#dig g.alicdn.com +subnet=216.58.194.0/24  @1.1.1.1</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">; &lt;&lt;&gt;&gt; DiG 9.11.4-P2-RedHat-9.11.4-26.P2.3.alios7.7 &lt;&lt;&gt;&gt; g.alicdn.com +subnet=216.58.194.0/24 @1.1.1.1</span></span><br><span class="line"><span class="string">;; global options: +cmd</span></span><br><span class="line"><span class="string">;; Got answer:</span></span><br><span class="line"><span class="string">;; -&gt;&gt;HEADER&lt;&lt;- opcode</span>: QUERY, status: NOERROR, <span class="built_in">id</span>: 51571</span><br><span class="line">;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 1</span><br><span class="line"></span><br><span class="line">;; OPT PSEUDOSECTION:</span><br><span class="line">; EDNS: version: 0, flags:; udp: 1232</span><br><span class="line">;; QUESTION SECTION:</span><br><span class="line">;g.alicdn.com.			IN	A</span><br><span class="line"></span><br><span class="line">;; ANSWER SECTION:</span><br><span class="line">g.alicdn.com.		576	IN	CNAME	g.alicdn.com.danuoyi.alicdn.com.</span><br><span class="line">g.alicdn.com.danuoyi.alicdn.com. 36 IN	A	47.246.24.170</span><br><span class="line">g.alicdn.com.danuoyi.alicdn.com. 36 IN	A	47.246.24.171</span><br><span class="line"></span><br><span class="line">;; Query time: 196 msec</span><br><span class="line">;; SERVER: 1.1.1.1<span class="comment">#53(1.1.1.1)</span></span><br><span class="line">;; WHEN: Sun May 19 19:31:42 CST 2024</span><br><span class="line">;; MSG SIZE  rcvd: 108</span><br><span class="line"></span><br><span class="line"><span class="comment">#</span></span><br><span class="line"><span class="comment">#dig g.alicdn.com +subnet=220.205.248.0/24 @1.1.1.1</span></span><br><span class="line"></span><br><span class="line">; &lt;&lt;&gt;&gt; DiG 9.11.4-P2-RedHat-9.11.4-26.P2.3.alios7.7 &lt;&lt;&gt;&gt; g.alicdn.com +subnet=220.205.248.0/24 @1.1.1.1</span><br><span class="line">;; global options: +cmd</span><br><span class="line">;; Got answer:</span><br><span class="line">;; -&gt;&gt;HEADER&lt;&lt;- <span class="string">opcode: QUERY, status: NOERROR, id: 40428</span></span><br><span class="line"><span class="string">;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 1</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">;; OPT PSEUDOSECTION:</span></span><br><span class="line"><span class="string">; EDNS: version: 0, flags:; udp: 1232</span></span><br><span class="line"><span class="string">;; QUESTION SECTION:</span></span><br><span class="line"><span class="string">;g.alicdn.com.			IN	A</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">;; ANSWER SECTION:</span></span><br><span class="line"><span class="string">g.alicdn.com.		600	IN	CNAME	g.alicdn.com.danuoyi.alicdn.com.</span></span><br><span class="line"><span class="string">g.alicdn.com.danuoyi.alicdn.com. 60 IN	A	47.246.24.170</span></span><br><span class="line"><span class="string">g.alicdn.com.danuoyi.alicdn.com. 60 IN	A	47.246.24.171</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">;; Query time: 192 msec</span></span><br><span class="line"><span class="string">;; SERVER: 1.1.1.1#53(1.1.1.1)</span></span><br><span class="line"><span class="string">;; WHEN: Sun May 19 19:32:00 CST 2024</span></span><br><span class="line"><span class="string">;; MSG SIZE  rcvd: 108</span></span><br></pre></td></tr></table></figure>
+
+<p>重新对 <code>8.8.8.8</code> 发起查询，则正确返回了不同的地址：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line">#dig g.alicdn.com +subnet=220.205.248.0/24 @8.8.8.8</span><br><span class="line"></span><br><span class="line">; &lt;&lt;&gt;&gt; DiG 9.11.4-P2-RedHat-9.11.4-26.P2.3.alios7.7 &lt;&lt;&gt;&gt; g.alicdn.com +subnet=220.205.248.0/24 A @8.8.8.8</span><br><span class="line">;; global options: +cmd</span><br><span class="line">;; Got answer:</span><br><span class="line">;; -&gt;&gt;HEADER&lt;&lt;- opcode: QUERY, status: NOERROR, id: 56887</span><br><span class="line">;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 1</span><br><span class="line"></span><br><span class="line">;; OPT PSEUDOSECTION:</span><br><span class="line">; EDNS: version: 0, flags:; udp: 512</span><br><span class="line">; CLIENT-SUBNET: 220.205.248.0/24/24</span><br><span class="line">;; QUESTION SECTION:</span><br><span class="line">;g.alicdn.com.			IN	A</span><br><span class="line"></span><br><span class="line">;; ANSWER SECTION:</span><br><span class="line">g.alicdn.com.		600	IN	CNAME	g.alicdn.com.danuoyi.alicdn.com.</span><br><span class="line">g.alicdn.com.danuoyi.alicdn.com. 60 IN	A	112.132.33.145</span><br><span class="line">g.alicdn.com.danuoyi.alicdn.com. 60 IN	A	112.132.33.146</span><br><span class="line"></span><br><span class="line">;; Query time: 80 msec</span><br><span class="line">;; SERVER: 8.8.8.8#53(8.8.8.8)</span><br><span class="line">;; WHEN: Sun May 19 19:36:20 CST 2024</span><br><span class="line">;; MSG SIZE  rcvd: 119</span><br><span class="line"></span><br><span class="line">#</span><br><span class="line">#dig g.alicdn.com +subnet=216.58.194.0/24  @8.8.8.8</span><br><span class="line"></span><br><span class="line">; &lt;&lt;&gt;&gt; DiG 9.11.4-P2-RedHat-9.11.4-26.P2.3.alios7.7 &lt;&lt;&gt;&gt; g.alicdn.com +subnet=216.58.194.0/24 @8.8.8.8</span><br><span class="line">;; global options: +cmd</span><br><span class="line">;; Got answer:</span><br><span class="line">;; -&gt;&gt;HEADER&lt;&lt;- opcode: QUERY, status: NOERROR, id: 59231</span><br><span class="line">;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 1</span><br><span class="line"></span><br><span class="line">;; OPT PSEUDOSECTION:</span><br><span class="line">; EDNS: version: 0, flags:; udp: 512</span><br><span class="line">; CLIENT-SUBNET: 216.58.194.0/24/24</span><br><span class="line">;; QUESTION SECTION:</span><br><span class="line">;g.alicdn.com.			IN	A</span><br><span class="line"></span><br><span class="line">;; ANSWER SECTION:</span><br><span class="line">g.alicdn.com.		600	IN	CNAME	g.alicdn.com.danuoyi.alicdn.com.</span><br><span class="line">g.alicdn.com.danuoyi.alicdn.com. 60 IN	A	47.246.24.170</span><br><span class="line">g.alicdn.com.danuoyi.alicdn.com. 60 IN	A	47.246.24.171</span><br><span class="line"></span><br><span class="line">;; Query time: 192 msec</span><br><span class="line">;; SERVER: 8.8.8.8#53(8.8.8.8)</span><br><span class="line">;; WHEN: Sun May 19 19:36:40 CST 2024</span><br><span class="line">;; MSG SIZE  rcvd: 119</span><br></pre></td></tr></table></figure>
+
+<p>考虑到 Cloudflare 在 CDN 上的深耕，不可能会不支持 DNS 优化吧？但是经过一系列调查后发现，Cloudflare 还真就不支持 EDNS。参考 <a target="_blank" rel="noopener" href="https://www.reddit.com/r/dns/comments/1585dkt/edns_client_subnet_enabled_google_dns_vs/">Reddit 网友的信息</a>：</p>
+<blockquote>
+<p>I don’t speak for Cloudflare but I’ve worked with them a little bit. Cloudflare is sort of philosophically opposed to ECS. They prefer to have a resolver instance running near every customer, which means that the resolver instance will always appear to be relative close to the upstream servers, and so the response will be as good as if ECS. In theory, anyways. I’m not sure I 100% agree with this but conceptually it is very tidy. The problem is that if they ever have to ship resolver traffic away, say due to an outage, or perhaps they just can’t get instances to certain locations, then ECS would do a better job.</p>
+</blockquote>
+<p>原来由于上面提到的 EDNS 可能会造成用户隐私泄漏 Cloudflare 选择更激进的直接不支持 EDNS 查询，看来是赛博菩萨 Cloudflare 比 Google 更好的诠释了什么叫 <code>Don&#39;t Be Evil</code>。</p>
+<p>但是由于众所周知的原因，无论是 <code>Google DNS</code> 还是 <code>Cloudflare DNS</code> 的 UDP 模式在大陆都不能直接正确工作。即使借助 <a target="_blank" rel="noopener" href="https://github.com/aarond10/https_dns_proxy">https_dns_proxy</a> 来进行 DoH 查询还存在被阻断的问题不能稳定工作。因此，我这边会使用 DoH over proxy 的方式来使用。但是由于 <code>AnyCast DNS</code>不能穿透代理，所以只能把 DNS 改成 <code>Google DNS</code> 了。</p>
+<h1 id="cURL-验证-DoH-查询结果"><a href="#cURL-验证-DoH-查询结果" class="headerlink" title="cURL 验证 DoH 查询结果"></a>cURL 验证 DoH 查询结果</h1><p>如果已经部署了 <a target="_blank" rel="noopener" href="https://github.com/aarond10/https_dns_proxy">https_dns_proxy</a> 的话，可以直接使用 <code>dig</code> 或者 <code>nslookup</code> 命令对本地的 UDP 端口进行查询测试，这个不做过多介绍了，这边我要介绍的是使用 cURL 命令来对 DoH 服务器进行测试。</p>
+<p>DoH 实际上存在两种标准：<code>DNS Wireformat</code> 和 <code>JSON API</code>，而后者是可以直接简单通过 cURL 进行查询的。</p>
+<h2 id="JSON-API"><a href="#JSON-API" class="headerlink" title="JSON API"></a>JSON API</h2><p>可以参考的文档，实际使用比较简单：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -H <span class="string">&quot;accept: application/dns-json&quot;</span> <span class="string">&quot;https://cloudflare-dns.com/dns-query?name=example.com&amp;type=AAAA&quot;</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>References:</p>
+</blockquote>
+<ol>
+<li>Google：<a target="_blank" rel="noopener" href="https://developers.google.com/speed/public-dns/docs/doh?hl=zh-cn">https://developers.google.com/speed/public-dns/docs/doh?hl=zh-cn</a></li>
+<li>Cloudflare：<a target="_blank" rel="noopener" href="https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/">https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/</a></li>
+</ol>
+<p>但是这种方式经过测试无法让 DNS 服务器感知源IP：可以参考 API 手册都不存在提交源 IP 的参数，而如果将 <code>X-Real-IP</code> 还是 <code>X-Forward</code> 头加入请求的话 Cloudflare 会直接返回 403。 想来者也可以理解，毕竟没可能直接信任来自互联网的 HTTP 请求中的 <code>X-Forward</code> 头。</p>
+<h2 id="DNS-Wireformat"><a href="#DNS-Wireformat" class="headerlink" title="DNS Wireformat"></a>DNS Wireformat</h2><p>相比 <code>JSON API</code> 中人类可读的 JSON 格式，这个其实是一个二进制格式，只不过是通过 HTTP body 进行发送而已。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">echo</span> -n <span class="string">&#x27;q80BAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB&#x27;</span> | <span class="built_in">base64</span> --decode | curl -H <span class="string">&#x27;content-type: application/dns-message&#x27;</span> --data-binary @- https://cloudflare-dns.com/dns-query -o - | hexdump</span><br></pre></td></tr></table></figure>
+
+<p>这种方式的秘密在于 Body 中二进制的编码格式，而翻阅了 <a target="_blank" rel="noopener" href="https://github.com/aarond10/https_dns_proxy">https_dns_proxy</a> 的代码之后发现实际上非常简单，它只是简单的把 UDP 查询请求的 payload 通过 HTTP body 进行发送而已。这甚至可以用 Shell 进行简单的模拟，执行下面的命令将在本地 <code>1234</code> 端口启动一个一次性的 DNS 转发服务器：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#cat &lt;&lt;&#x27;EOF&#x27; &gt; /tmp/helper.sh</span></span><br><span class="line"><span class="comment">#!/usr/bin/env bash</span></span><br><span class="line"></span><br><span class="line">URL=<span class="variable">$1</span></span><br><span class="line">payload=$(<span class="built_in">timeout</span> 1s <span class="built_in">cat</span> | <span class="built_in">base64</span>)</span><br><span class="line"></span><br><span class="line"><span class="built_in">command</span>=$(<span class="built_in">echo</span> <span class="string">&quot;echo -n <span class="variable">$payload</span> | base64 -d | curl -H &#x27;content-type: application/dns-message&#x27; --data-binary @- https://<span class="variable">$URL</span> -o -&quot;</span>)</span><br><span class="line"></span><br><span class="line">&gt;&amp;2 <span class="built_in">echo</span> <span class="variable">$command</span> &amp;&amp; <span class="built_in">eval</span> <span class="variable">$command</span></span><br><span class="line">EOF</span><br><span class="line"></span><br><span class="line"><span class="built_in">chmod</span> +x /tmp/helper.sh</span><br><span class="line">ncat  -u -l 1234 --sh-exec <span class="string">&#x27;/tmp/helper.sh 8.8.8.8/dns-query&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p>后面就可以通过正常的 <code>dig</code> 命令进行查询了：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dig g.alicdn.com +subnet=220.205.248.0/24 @127.0.0.1 -p 1234</span><br></pre></td></tr></table></figure>
+
+<p>效果如图：<br><img src="/./images/curl-doh-server/demo.jpg" alt="demo"></p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>Reficul
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://reficul.io/2024/05/19/curl-doh-server/" title="用 cURL 进行 DoH 模式下的 EDNS 查询测试">https://reficul.io/2024/05/19/curl-doh-server/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fa fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/DNS/" rel="tag"># DNS</a>
+              <a href="/tags/DoH/" rel="tag"># DoH</a>
+              <a href="/tags/EDNS/" rel="tag"># EDNS</a>
+              <a href="/tags/dig/" rel="tag"># dig</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2023/07/18/backup-truenas-to-oss/" rel="prev" title="备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑">
+      <i class="fa fa-chevron-left"></i> 备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2025/05/30/musl-dns-resolv-error/" rel="next" title="记一次 Alpine 的 Pod 解析 Service 域名超时根因的调查">
+      记一次 Alpine 的 Pod 解析 Service 域名超时根因的调查 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#DNS-%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88"><span class="nav-number">1.</span> <span class="nav-text">DNS 优化方案</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#EDNS"><span class="nav-number">1.1.</span> <span class="nav-text">EDNS</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#Anycast-DNS"><span class="nav-number">1.2.</span> <span class="nav-text">Anycast DNS</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%E4%BC%98%E5%8C%96%E6%95%88%E6%9E%9C"><span class="nav-number">2.</span> <span class="nav-text">验证优化效果</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#cURL-%E9%AA%8C%E8%AF%81-DoH-%E6%9F%A5%E8%AF%A2%E7%BB%93%E6%9E%9C"><span class="nav-number">3.</span> <span class="nav-text">cURL 验证 DoH 查询结果</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#JSON-API"><span class="nav-number">3.1.</span> <span class="nav-text">JSON API</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#DNS-Wireformat"><span class="nav-number">3.2.</span> <span class="nav-text">DNS Wireformat</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Reficul"
+      src="/images/icon.jpg">
+  <p class="site-author-name" itemprop="name">Reficul</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">15</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">46</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xuzhenglun" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:xuzhenglun@gmail.com" title="E-Mail → mailto:xuzhenglun@gmail.com" rel="noopener" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://twitter.com/xuzhenglun" title="Twitter → https:&#x2F;&#x2F;twitter.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-twitter"></i>Twitter</a>
+      </span>
+  </div>
+
+
+  <div class="links-of-blogroll motion-element">
+    <div class="links-of-blogroll-title">
+      <i class="fa fa-fw fa-link"></i>
+      Links
+    </div>
+    <ul class="links-of-blogroll-list">
+        <li class="links-of-blogroll-item">
+          <a href="https://farer.org/" title="https:&#x2F;&#x2F;farer.org&#x2F;" rel="noopener" target="_blank">Eric</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://sakeven.me/" title="https:&#x2F;&#x2F;sakeven.me" rel="noopener" target="_blank">Sakeven</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://reality0ne.com/" title="https:&#x2F;&#x2F;reality0ne.com" rel="noopener" target="_blank">realityOne</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://justjjy.com/" title="https:&#x2F;&#x2F;justjjy.com" rel="noopener" target="_blank">JJY</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://renlulu.github.io/" title="https:&#x2F;&#x2F;renlulu.github.io" rel="noopener" target="_blank">Renlulu</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://g.yannxia.top/" title="https:&#x2F;&#x2F;g.yannxia.top" rel="noopener" target="_blank">Summer</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://tomwei7.com/" title="https:&#x2F;&#x2F;tomwei7.com" rel="noopener" target="_blank">TomWei</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://yowenter.github.io/" title="https:&#x2F;&#x2F;yowenter.github.io" rel="noopener" target="_blank">TaoGe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://ylck.me/" title="https:&#x2F;&#x2F;ylck.me" rel="noopener" target="_blank">Ylck</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://wangzhezhe.github.io/" title="https:&#x2F;&#x2F;wangzhezhe.github.io&#x2F;" rel="noopener" target="_blank">Wangzhezhe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.jinwei.me/" title="https:&#x2F;&#x2F;blog.jinwei.me" rel="noopener" target="_blank">Clark</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.ihypo.net/" title="https:&#x2F;&#x2F;blog.ihypo.net" rel="noopener" target="_blank">Hypo</a>
+        </li>
+    </ul>
+  </div>
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2015 – 
+  <span itemprop="copyrightYear">2025</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Reficul</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.7.1/viz.js'></script>
+  <script>
+    String.prototype.replaceAll = function(search, replacement) {
+      var target = this;
+      return target.split(search).join(replacement);
+    };
+
+    let vizObjects = document.querySelectorAll('.graphviz')
+
+    for (let item of vizObjects) {
+      let svg = undefined
+      try {
+        svg = Viz(item.textContent.replaceAll('–', '--'), 'svg')
+      } catch(e) {
+        svg = `<pre class="error">${e}</pre>`
+      }
+      item.outerHTML = svg
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+  <script defer src="/lib/three/three.min.js"></script>
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  var disqus_config = function() {
+    this.page.url = "https://reficul.io/2024/05/19/curl-doh-server/";
+    this.page.identifier = "2024/05/19/curl-doh-server/";
+    this.page.title = "用 cURL 进行 DoH 模式下的 EDNS 查询测试";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://xuzhenglun.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

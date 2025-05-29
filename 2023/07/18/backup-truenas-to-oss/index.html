@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+    <script data-ad-client="ca-pub-2538407472813986" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"reficul.io","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="可能是由于高温的原因，前段时间我的 TrueNAS 的磁盘阵列挂了。 我的阵列由四块磁盘组成，采用了 Raid1+0 的架构，这样可以保证只要不同时挂掉 Mirror 中的两块磁盘，就不会丢失数据。但是这次我的阵列突然出现了 3 块磁盘同时 S.M.A.R.T 自检失败，其中两块磁盘出现了掉盘的情况。虽然好在掉盘情况没有同时发生在同一个 Mirror 之中，不过也是足够吓人了。虽然后面经过十分痛苦">
+<meta property="og:type" content="article">
+<meta property="og:title" content="备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑">
+<meta property="og:url" content="https://reficul.io/2023/07/18/backup-truenas-to-oss/index.html">
+<meta property="og:site_name" content="Reficul">
+<meta property="og:description" content="可能是由于高温的原因，前段时间我的 TrueNAS 的磁盘阵列挂了。 我的阵列由四块磁盘组成，采用了 Raid1+0 的架构，这样可以保证只要不同时挂掉 Mirror 中的两块磁盘，就不会丢失数据。但是这次我的阵列突然出现了 3 块磁盘同时 S.M.A.R.T 自检失败，其中两块磁盘出现了掉盘的情况。虽然好在掉盘情况没有同时发生在同一个 Mirror 之中，不过也是足够吓人了。虽然后面经过十分痛苦">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719012107.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719012356.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719012152.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719012507.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719013341.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719012632.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719022634.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230720000225.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/oss-validate.png">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230720002818.jpg">
+<meta property="og:image" content="https://reficul.io/images/backup-truenas-to-oss/20230720004021.jpg">
+<meta property="article:published_time" content="2023-07-18T23:37:00.000Z">
+<meta property="article:modified_time" content="2025-05-29T17:21:18.452Z">
+<meta property="article:author" content="Reficul">
+<meta property="article:tag" content="rclone">
+<meta property="article:tag" content="TrueNAS">
+<meta property="article:tag" content="OSS">
+<meta property="article:tag" content="S3">
+<meta property="article:tag" content="阿里云">
+<meta property="article:tag" content="深度冷归档">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://reficul.io/images/backup-truenas-to-oss/20230719012107.jpg">
+
+<link rel="canonical" href="https://reficul.io/2023/07/18/backup-truenas-to-oss/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑 | Reficul</title>
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-57211109-1"></script>
+    <script>
+      if (CONFIG.hostname === location.hostname) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'UA-57211109-1');
+      }
+    </script>
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Reficul</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://reficul.io/2023/07/18/backup-truenas-to-oss/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/icon.jpg">
+      <meta itemprop="name" content="Reficul">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Reficul">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：7月 18 2023 23:37:00" itemprop="dateCreated datePublished" datetime="2023-07-18T23:37:00+00:00">7月 18 2023</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：5月 29 2025 17:21:18" itemprop="dateModified" datetime="2025-05-29T17:21:18+00:00">5月 29 2025</time>
+              </span>
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              <span class="post-meta-item-text">分类于</span>
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/NAS/" itemprop="url" rel="index"><span itemprop="name">NAS</span></a>
+                </span>
+            </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>可能是由于高温的原因，前段时间我的 TrueNAS 的磁盘阵列挂了。 我的阵列由四块磁盘组成，采用了 Raid1+0 的架构，这样可以保证只要不同时挂掉 Mirror 中的两块磁盘，就不会丢失数据。但是这次我的阵列突然出现了 3 块磁盘同时 S.M.A.R.T 自检失败，其中两块磁盘出现了掉盘的情况。虽然好在掉盘情况没有同时发生在同一个 Mirror 之中，不过也是足够吓人了。虽然后面经过十分痛苦的控制变量后排除了磁盘问题，锁定是 SATA 线的问题（线换了两次都是坏的，也是够倒霉的）。 考虑到磁盘都在同一个机箱内，温度、掉电等异常情况都是同时发生的，即使采用了 RAID1 冗余数据也未必安全。 </p>
+<p>痛定思痛，考虑再把数据同步一份到云上做异地灾备就被提上了日程。这样的话，就算本地彻底玩完也可以从云上把数据重新恢复过来。考虑到本地已经采用了 RAID1+0 阵列，因此实际需要从云上恢复的概率很低了，所以灾备方案最首要考虑的是长期可延续性和性价比。这样的话，各家网盘首先因为未来运营上的不确定性排除掉了。在考虑性价比的话，就只需要找一家足够便宜的对象存储罢了。</p>
+<p>这个过程中，踩了不少坑，希望能帮助到一些人。</p>
+<span id="more"></span>
+<h1 id="价格"><a href="#价格" class="headerlink" title="价格"></a>价格</h1><p>翻了下 TrueNAS 云同步任务支持的 Backend，其中 AWS S3 Glacier 无疑是这个需求上最好的选择。它足够便宜，具有极高的可用性，只要 AWS 不出大问题 S3 也不会停止运营或者缩水涨价。他的限制也很明显，不支持随时读，写入后最少支付 180 天的费用。但是这些问题在冷备的场景下都不是问题，毕竟我不可能很频繁的做数据恢复。</p>
+<p>其次值得一提的是，B2 也是一个不错的选择。作为传统的备份方案厂商，B2 有着不俗的可用性的同时，价格只是 S3 「标准型」的五分之一，同时还有不错的社区兼容性，同时它还可以配合 Cloudflare 白嫖流量，还是很值得使用的。具体的价格我列在下面，可以对比一下。<strong>唯一的坑是它的可用区是在注册的时候有个可选参数选择的，注册后无法更改。</strong></p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>每月每GB单价</th>
+<th>每月存储 1TB</th>
+<th>GET&#x2F;PUT 价格</th>
+<th>流量费用</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>iCloud</td>
+<td>-</td>
+<td><code>$9.9</code></td>
+<td>-</td>
+<td>-</td>
+<td>美区价格，</br >云上贵州狗都不去</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://www.backblaze.com/cloud-storage">B2 存储</a></td>
+<td><code>$0.005</code></td>
+<td><code>$5</code></td>
+<td>-</td>
+<td><code>$0.01/G</code></td>
+<td>计价、使用都很简单</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://aws.amazon.com/cn/s3/pricing">S3「标准型」</a></td>
+<td><code>$0.023</code></td>
+<td><code>$23</code></td>
+<td><code>$0.005/1k次</code></td>
+<td><code>$0.09/G</code></td>
+<td>计价模型复杂</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://aws.amazon.com/cn/s3/pricing">S3「深度冷归档」</a></td>
+<td><code>$0.00099</code></td>
+<td><code>$0.99</code></td>
+<td><code>$0.05/1k次</code></td>
+<td><code>$0.09/G</code></td>
+<td>计价模型复杂</br>有解冻费用</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://cn.aliyun.com/price/detail/oss">OSS「标准型」</a></td>
+<td><code>¥0.12</code></td>
+<td><code>¥120</code></td>
+<td><code>¥0.1/1k次</code></td>
+<td><code>$0.01/G</code></td>
+<td>计价模型复杂</br>坑多</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://cn.aliyun.com/price/detail/oss">OSS「深度冷归档」</a></td>
+<td><code>¥0.005</code></td>
+<td><code>¥5</code></td>
+<td><code>¥35/1k次</code></td>
+<td><code>$0.01/G</code></td>
+<td>计价模型复杂</br>坑多</br>有解冻费用</td>
+</tr>
+</tbody></table>
+<p>S3 因为 GFW 的原因，在国内基本上用不了。所以自然是只剩下了 B2 和 OSS 两个选择。先使用 <a target="_blank" rel="noopener" href="https://www.backblaze.com/cloud-backup/resources/speedtest">B2 测速链接</a>测速，选择一个较快的可用区。我这边的网络情况是浙江联通 50Mbps 上传，深夜对美西可用区可以跑到 5MB&#x2F;s 左右的样子，其实是不错啦。而且 TrueNAS 对 B2 有原生的支持，只需要将在 B2 上创建的密钥配置进 TrueNAS 配置好云凭据，就能很方便的创建云同步任务了。</p>
+<h1 id="同行衬托"><a href="#同行衬托" class="headerlink" title="同行衬托"></a>同行衬托</h1><p>先让我们先试牛刀，配置一个 B2 试试看。大致步骤就如下两张图可以概括，非常丝滑：</p>
+<ol>
+<li>配置云凭据<br>  <img src="/images/backup-truenas-to-oss/20230719012107.jpg" alt="配置云凭据" title="配置云凭据"></li>
+<li>配置云同步任务<br>  <img src="/images/backup-truenas-to-oss/20230719012356.jpg" alt="配置同步任务" title="配置同步任务"></li>
+</ol>
+<hr>
+<h1 id="噩梦开始"><a href="#噩梦开始" class="headerlink" title="噩梦开始"></a>噩梦开始</h1><p>下面是正文 OSS 的部分。和 B2 类似，下面先把OSS 的配置部分贴出来。但是如果不做以下的额外事情，是不能用的。由于过程中涉及工单，整个过程需要人工介入，快的话下来大概需要1天。这个过程踩了不少坑，我实际下来大概花了一周左右才解决。</p>
+<ol>
+<li><p>配置云凭据</p>
+<ol>
+<li>下图的 Endpoint 部分，填写对应 Bucket 所在 Region 的地址，具体可以<a target="_blank" rel="noopener" href="https://help.aliyun.com/document_detail/31837.html">查询文档</a>。我这里是华东上海，所以填的是如图的地址。<br><img src="/images/backup-truenas-to-oss/20230719012152.jpg" alt="配置云凭据" title="配置云凭据"></li>
+<li>AccessKey 和 SecretKey 需要去 RAM 控制台创建一个「用户」，并给与绑定足够的「权限策略」。我这里是赋予了他除了删除 bucket 等少数敏感权限以外的全部权限，可以按实际需要配置。</li>
+</ol>
+</li>
+<li><p>配置云同步任务，但是注意：<br><img src="/images/backup-truenas-to-oss/20230719012507.jpg" alt="配置同步任务" title="配置同步任务"></p>
+<ol>
+<li>值得注意的是，在完成下文提到的<a href="#1-%E8%AE%A9-TrueNAS-%E6%94%AF%E6%8C%81-OSS">「1. 让 TrueNAS 支持 OSS」</a>之前，编辑页面无法正常列出 Bucket。</li>
+<li>使用 <code>--fast-list</code> 减少 API 调用可以省一些钱，否则就算每次同步的时候实际没有增量，也会因为 LIST 对象的时候的 API 调用产生高额费用；</li>
+<li>值得注意的是，存储类别采用 <code>GLACIER</code> 类型，这个类型对应在 OSS 的是「归档型」，而非是「深度冷存档」。但是为了使用「深度冷存档」来降低费用，还要按<a href="#2-%E5%BC%80%E9%80%9A%E3%80%8C%E6%B7%B1%E5%BA%A6%E5%86%B7%E5%BD%92%E6%A1%A3%E3%80%8D%E5%8A%9F%E8%83%BD">「2. 开通「深度冷归档」功能」</a>里描述的联系客服后后才能开通。在开通后，就可以通过配置对象生命周期自动转换类型规则。</li>
+<li>阿里云 OSS 在加密这块的支持是没有问题的，可以正常使用。我这里配置了加密的，一来数据在国内我不放心，二来「There is no cloud, just other people’s computers」。</li>
+</ol>
+</li>
+<li><p>上面搞完之后，直接用是不可能用的了的，还需要解决下面额外的事情。</p>
+</li>
+</ol>
+<h2 id="额外工作"><a href="#额外工作" class="headerlink" title="额外工作"></a>额外工作</h2><h3 id="1-让-TrueNAS-支持-OSS"><a href="#1-让-TrueNAS-支持-OSS" class="headerlink" title="1. 让 TrueNAS 支持 OSS"></a>1. 让 TrueNAS 支持 OSS</h3><p>这一步是最简单的，TrueNAS 云同步任务后台采用的其实是 <a target="_blank" rel="noopener" href="https://rclone.org/">Rclone</a>。由于 OSS 支持 S3 API，所以理论上 Rclone 用 S3 API 应该也是可以工作的。但是实际上，因为<a target="_blank" rel="noopener" href="https://help.aliyun.com/document_detail/389025.html">阿里云并非完全兼容 S3</a>，所以直接配置是会失败的。</p>
+<p>通过<a target="_blank" rel="noopener" href="https://rclone.org/s3/#alibaba-oss">翻阅文档</a>和<a target="_blank" rel="noopener" href="https://github.com/rclone/rclone/commit/a4af737bf021a73ee7a2324f101569de20ce8be7">代码</a>，实际上 Rclone 是可以使用 S3 API 来支持 OSS 的。唯一的改动是需要添加一个配置，只需要关闭 <code>force_path_style</code> 功能或者正确配置 <code>provider</code> 参数即可。</p>
+<p>可惜的是 TrueNAS 不支持自定义 Flag 参数的填写。通常的方法是放弃 Web GUI，自己写一个脚本放到 CronJob 里跑。但是在任务失败的异常中我发现，TrueNAS 同步模块是 Python 写的，所以我们完全可以魔改一下让他支持。</p>
+<p>ssh 到 TrueNAS 机器上，我的 TrueNAS 版本是 <code>TrueNAS CORE® © 2022</code>，其他版本可以自己参考下。打开并编辑下面代码块内的文件，在下面图中所在行数添加代码，<strong>注意缩进</strong>。保存过后，执行 <code>service middlewared restart</code> 重启 Web 服务。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#vim /usr/local/lib/python3.9/site-packages/middlewared/plugins/cloud_sync.py</span></span><br><span class="line">        <span class="keyword">if</span> <span class="string">&quot;aliyuncs.com&quot;</span> <span class="keyword">in</span> config.get(<span class="string">&quot;endpoint&quot;</span>, <span class="string">&quot;&quot;</span>):</span><br><span class="line">            logger.warning(<span class="string">f&quot;set provider for <span class="subst">&#123;config[<span class="string">&#x27;endpoint&#x27;</span>]&#125;</span> as Alibaba&quot;</span>)</span><br><span class="line">            config[<span class="string">&quot;provider&quot;</span>] = <span class="string">&quot;Alibaba&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/backup-truenas-to-oss/20230719013341.jpg" title="魔改代码"></p>
+<h3 id="2-开通「深度冷归档」功能"><a href="#2-开通「深度冷归档」功能" class="headerlink" title="2. 开通「深度冷归档」功能"></a>2. 开通「深度冷归档」功能</h3><p>直接创建 Bucket 的时候会发现，实际上并没有「深度冷归档」功能。查阅<a target="_blank" rel="noopener" href="https://help.aliyun.com/document_detail/2399408.html">OSS 文档</a>发现，「深度冷归档」功能需要人工开通。好吗，毕竟文档白纸黑字说了，而且这个是个新上的功能，情有可原没什么好说的。创建一个「标准型」的 Bucket，然后在工作日开工单，等就完了。</p>
+<p>开通之后，就可以正常使用「深度冷归档」功能了。但是需要注意的是，直接上传到「深度冷归档」的 API 调用费用非常昂贵，而如果上传至「冷归档」再转换到「深度冷归档」则会额外收取 180 天的提前删除费用。相比下来，通过上传对象至「归档型」存储类型，然后通过生命周期自动转换到「深度冷归档」并不会收取额外的费用。因此，这里还需要配置如下的生命周期规则。这里需要额外注意到是，「深度冷归档」功能如果文件小于 128KB 会按照 128KB 收费，如果存在大量小文件则不宜全部转换。</p>
+<p><img src="/../images/backup-truenas-to-oss/20230719012632.jpg"></p>
+<h3 id="3-开通S3-API开通"><a href="#3-开通S3-API开通" class="headerlink" title="3. 开通S3 API开通"></a>3. 开通S3 API开通</h3><p>TLDR，这里先给结论：和<a target="_blank" rel="noopener" href="https://help.aliyun.com/document_detail/389025.html">OSS与Amazon S3的兼容性</a>里描述不同的是，OSS 默认情况下S3 API 的 StorageClass 参数是完全无法正常使用的。如果要正常使用，需要开工单找客服去要求「添加白名单」。</p>
+<p><img src="/images/backup-truenas-to-oss/20230719022634.jpg" title="官方文档，存储类型名不同"></p>
+<h4 id="牢骚"><a href="#牢骚" class="headerlink" title="牢骚"></a>牢骚</h4><p>接下来是发牢骚并交代细节的部分了，过程总计大致有 3 个来回。</p>
+<h5 id="Round-1"><a href="#Round-1" class="headerlink" title="Round 1"></a>Round 1</h5><p>如果按上面兼容性文档字面意思描述的意思的话，在需要将上传对象的类型设置为「归档型」类型的时候，需要在 S3 SDK 内将 StorageClass 字段设置为 <code>Archive</code>。毕竟我语文比较差，为了避免理解有误，我咨询了客服做了确认。沟通过程还是比较流畅的，答曰如下：</p>
+<p><img src="/images/backup-truenas-to-oss/20230720000225.jpg"></p>
+<p>如果你也和我一样信了邪，傻傻的使用了 <code>Standard</code>、<code>IA</code> 和 <code>Archive</code> 的话，那你会收获到如下的异常返回。可以看到三种 ClassStorage 是没有一个能用的。</p>
+<details>
+
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Error</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Code</span>&gt;</span>InvalidStorageClass<span class="tag">&lt;/<span class="name">Code</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Message</span>&gt;</span>The storage class you specified is not valid<span class="tag">&lt;/<span class="name">Message</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">RequestId</span>&gt;</span>64B17B63725B7333353154A1<span class="tag">&lt;/<span class="name">RequestId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">HostId</span>&gt;</span>reficul-truenas.oss-cn-shanghai.aliyuncs.com<span class="tag">&lt;/<span class="name">HostId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">StorageClassRequested</span>&gt;</span>Archive<span class="tag">&lt;/<span class="name">StorageClassRequested</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Error</span>&gt;</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="tag">&lt;<span class="name">Error</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Code</span>&gt;</span>InvalidStorageClass<span class="tag">&lt;/<span class="name">Code</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Message</span>&gt;</span>The storage class you specified is not valid<span class="tag">&lt;/<span class="name">Message</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">RequestId</span>&gt;</span>64B17C51F651CD33381690FF<span class="tag">&lt;/<span class="name">RequestId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">HostId</span>&gt;</span>reficul-truenas.oss-cn-shanghai.aliyuncs.com<span class="tag">&lt;/<span class="name">HostId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">StorageClassRequested</span>&gt;</span>IA<span class="tag">&lt;/<span class="name">StorageClassRequested</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Error</span>&gt;</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="tag">&lt;<span class="name">Error</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Code</span>&gt;</span>InvalidStorageClass<span class="tag">&lt;/<span class="name">Code</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Message</span>&gt;</span>The storage class you specified is not valid<span class="tag">&lt;/<span class="name">Message</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">RequestId</span>&gt;</span>64B17CAFA9FF3B32324D7BDA<span class="tag">&lt;/<span class="name">RequestId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">HostId</span>&gt;</span>reficul-truenas.oss-cn-shanghai.aliyuncs.com<span class="tag">&lt;/<span class="name">HostId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">StorageClassRequested</span>&gt;</span>Standard<span class="tag">&lt;/<span class="name">StorageClassRequested</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Error</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+</details>
+
+
+<h5 id="Round-2"><a href="#Round-2" class="headerlink" title="Round 2"></a>Round 2</h5><p>这时候就不得不再开一个工单再咨询之，客服B 答曰这个异常是 SDK 返回的。言下之意 S3 的 SDK 校验了枚举值，是我自己的锅。看似很有道理，但是仔细一想就不对。首先，这个错误明显是服务端响应的，因为使用 <code>RequestId</code> 可以在 OSS 的自助诊断工具内查询到相同的错误码，没理由&#x2F;不太可能客户端里的异常会选择上报到服务端上去。其次，我仔细翻看了 Go S3 API 的校验逻辑后（如下图），确定了并没有校验 StorageClass 枚举值。</p>
+<p><img src="/images/backup-truenas-to-oss/oss-validate.png"></p>
+<p>追问之，表示不好意思之前的 Round 1的客服A 说错了，文档正确的理解是 OSS 会自动转换枚举值，我只管用 S3 的标准值就行了。原来不止我一个人语文不好，客服A 和我也一样不好。那行吧，毕竟「文档不准确这种情况」大家都是程序员也都能理解（又不是不能用.jpg）。</p>
+<p><img src="/../images/backup-truenas-to-oss/20230720002818.jpg"></p>
+<p>刚到嘴边的「又不是不能用」还没说出来，好死不死还真的不能用。如果你也像我一样信了他的邪，你会发现只有设置 <code>STANDARD</code> 的时候是正确响应的。如果预期设置的是「低频访问」 <code>STANDARD_IA</code> 的话，上传上去的对象还是「标准型」，如果预期设置的是「归档型」 <code>GLACIER</code> 的话，就直接报错无法上传。不过仔细看的话会发现错误码变了，从 <code>The storage class you specified is not valid</code> 变成了 <code>GLACIER is not allowed.</code>。</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Error</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Code</span>&gt;</span>InvalidArgument<span class="tag">&lt;/<span class="name">Code</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Message</span>&gt;</span>GLACIER is not allowed.<span class="tag">&lt;/<span class="name">Message</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">RequestId</span>&gt;</span>64B202A4999ED630374A2C88<span class="tag">&lt;/<span class="name">RequestId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">HostId</span>&gt;</span>reficul-truenas.oss-cn-shanghai.aliyuncs.com<span class="tag">&lt;/<span class="name">HostId</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">ArgumentName</span>&gt;</span>X-AMZ-STORAGE-CLASS<span class="tag">&lt;/<span class="name">ArgumentName</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">ArgumentValue</span>&gt;</span>GLACIER<span class="tag">&lt;/<span class="name">ArgumentValue</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Error</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h5 id="Round-3"><a href="#Round-3" class="headerlink" title="Round 3"></a>Round 3</h5><p>十分无奈的三问客服，这次和往常不同的是经过了很长时间的调查。经过一段时间的等待后，告知 S3 API 是非标功能，需要后台加白。而且，对待已有对客文档的前提下，以及对对象存储事实标准的 S3 API 的态度是：<strong>「您好，我们只是兼容，不代表默认就支持」</strong>。其实吧，大家都是码农也都能理解，承认是个 Bug 后台 Hack 了下没啥丢人的。但是面对这种既好笑又熟悉的对客态度，我只想说：行吧，「你清高，你了不起」。</p>
+<p><img src="/images/backup-truenas-to-oss/20230720004021.jpg"></p>
+<p>回过神想想，这么低级的问题都要这样踩坑，这么多人都没发现正巧遇到我个倒霉蛋，只能说我这个已经是高级用法了，国内公有云市场就已经这样了？还是说就 OSS 已经没人用了？另外，我很好奇的是如果这个文章有人能看到，在提交的工单多了、时间久了之后，这个地方还会是这样么？</p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>接下来就是等下个月账单了，我也再次衷心的希望这篇流水账能帮助到一些人。</p>
+<p>在国内，阿里云在公有云市场基本上是垄断的地位，但是这次的体验只能说是差强人意。作为云计算知母的对象存储使用起来的体验都如此这般，我只能说比较遗憾和失望。<del>云计算在国内不存在了。</del> </p>
+<p>回头想想，我们到底在做什么？这次最失望的不是问题本身，而是一个热路径上竟然存在这样的低级问题，竟然要用工单的方式手动解决，竟然回复的口径是这么的高傲（可悲的是这种口径我竟然觉得还挺熟悉的）。在这个过程中隐隐约约似乎看到了自己平时打工时候的影子，可能也是对自己失望了吧。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>Reficul
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://reficul.io/2023/07/18/backup-truenas-to-oss/" title="备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑">https://reficul.io/2023/07/18/backup-truenas-to-oss/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fa fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/rclone/" rel="tag"># rclone</a>
+              <a href="/tags/TrueNAS/" rel="tag"># TrueNAS</a>
+              <a href="/tags/OSS/" rel="tag"># OSS</a>
+              <a href="/tags/S3/" rel="tag"># S3</a>
+              <a href="/tags/%E9%98%BF%E9%87%8C%E4%BA%91/" rel="tag"># 阿里云</a>
+              <a href="/tags/%E6%B7%B1%E5%BA%A6%E5%86%B7%E5%BD%92%E6%A1%A3/" rel="tag"># 深度冷归档</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2023/01/09/too-large-resource-version/" rel="prev" title="kube-apiserver 持续告警 KubeAPIErrorsHigh 调查">
+      <i class="fa fa-chevron-left"></i> kube-apiserver 持续告警 KubeAPIErrorsHigh 调查
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2024/05/19/curl-doh-server/" rel="next" title="用 cURL 进行 DoH 模式下的 EDNS 查询测试">
+      用 cURL 进行 DoH 模式下的 EDNS 查询测试 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BB%B7%E6%A0%BC"><span class="nav-number">1.</span> <span class="nav-text">价格</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%90%8C%E8%A1%8C%E8%A1%AC%E6%89%98"><span class="nav-number">2.</span> <span class="nav-text">同行衬托</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%99%A9%E6%A2%A6%E5%BC%80%E5%A7%8B"><span class="nav-number">3.</span> <span class="nav-text">噩梦开始</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%A2%9D%E5%A4%96%E5%B7%A5%E4%BD%9C"><span class="nav-number">3.1.</span> <span class="nav-text">额外工作</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-%E8%AE%A9-TrueNAS-%E6%94%AF%E6%8C%81-OSS"><span class="nav-number">3.1.1.</span> <span class="nav-text">1. 让 TrueNAS 支持 OSS</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-%E5%BC%80%E9%80%9A%E3%80%8C%E6%B7%B1%E5%BA%A6%E5%86%B7%E5%BD%92%E6%A1%A3%E3%80%8D%E5%8A%9F%E8%83%BD"><span class="nav-number">3.1.2.</span> <span class="nav-text">2. 开通「深度冷归档」功能</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-%E5%BC%80%E9%80%9AS3-API%E5%BC%80%E9%80%9A"><span class="nav-number">3.1.3.</span> <span class="nav-text">3. 开通S3 API开通</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%89%A2%E9%AA%9A"><span class="nav-number">3.1.3.1.</span> <span class="nav-text">牢骚</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#Round-1"><span class="nav-number">3.1.3.1.1.</span> <span class="nav-text">Round 1</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#Round-2"><span class="nav-number">3.1.3.1.2.</span> <span class="nav-text">Round 2</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#Round-3"><span class="nav-number">3.1.3.1.3.</span> <span class="nav-text">Round 3</span></a></li></ol></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.2.</span> <span class="nav-text">总结</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Reficul"
+      src="/images/icon.jpg">
+  <p class="site-author-name" itemprop="name">Reficul</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">15</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">46</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xuzhenglun" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:xuzhenglun@gmail.com" title="E-Mail → mailto:xuzhenglun@gmail.com" rel="noopener" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://twitter.com/xuzhenglun" title="Twitter → https:&#x2F;&#x2F;twitter.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-twitter"></i>Twitter</a>
+      </span>
+  </div>
+
+
+  <div class="links-of-blogroll motion-element">
+    <div class="links-of-blogroll-title">
+      <i class="fa fa-fw fa-link"></i>
+      Links
+    </div>
+    <ul class="links-of-blogroll-list">
+        <li class="links-of-blogroll-item">
+          <a href="https://farer.org/" title="https:&#x2F;&#x2F;farer.org&#x2F;" rel="noopener" target="_blank">Eric</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://sakeven.me/" title="https:&#x2F;&#x2F;sakeven.me" rel="noopener" target="_blank">Sakeven</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://reality0ne.com/" title="https:&#x2F;&#x2F;reality0ne.com" rel="noopener" target="_blank">realityOne</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://justjjy.com/" title="https:&#x2F;&#x2F;justjjy.com" rel="noopener" target="_blank">JJY</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://renlulu.github.io/" title="https:&#x2F;&#x2F;renlulu.github.io" rel="noopener" target="_blank">Renlulu</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://g.yannxia.top/" title="https:&#x2F;&#x2F;g.yannxia.top" rel="noopener" target="_blank">Summer</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://tomwei7.com/" title="https:&#x2F;&#x2F;tomwei7.com" rel="noopener" target="_blank">TomWei</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://yowenter.github.io/" title="https:&#x2F;&#x2F;yowenter.github.io" rel="noopener" target="_blank">TaoGe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://ylck.me/" title="https:&#x2F;&#x2F;ylck.me" rel="noopener" target="_blank">Ylck</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://wangzhezhe.github.io/" title="https:&#x2F;&#x2F;wangzhezhe.github.io&#x2F;" rel="noopener" target="_blank">Wangzhezhe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.jinwei.me/" title="https:&#x2F;&#x2F;blog.jinwei.me" rel="noopener" target="_blank">Clark</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.ihypo.net/" title="https:&#x2F;&#x2F;blog.ihypo.net" rel="noopener" target="_blank">Hypo</a>
+        </li>
+    </ul>
+  </div>
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2015 – 
+  <span itemprop="copyrightYear">2025</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Reficul</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.7.1/viz.js'></script>
+  <script>
+    String.prototype.replaceAll = function(search, replacement) {
+      var target = this;
+      return target.split(search).join(replacement);
+    };
+
+    let vizObjects = document.querySelectorAll('.graphviz')
+
+    for (let item of vizObjects) {
+      let svg = undefined
+      try {
+        svg = Viz(item.textContent.replaceAll('–', '--'), 'svg')
+      } catch(e) {
+        svg = `<pre class="error">${e}</pre>`
+      }
+      item.outerHTML = svg
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+  <script defer src="/lib/three/three.min.js"></script>
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  var disqus_config = function() {
+    this.page.url = "https://reficul.io/2023/07/18/backup-truenas-to-oss/";
+    this.page.identifier = "2023/07/18/backup-truenas-to-oss/";
+    this.page.title = "备份 TrueNAS 数据至阿里云 OSS 深度冷归档存储踩坑";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://xuzhenglun.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>

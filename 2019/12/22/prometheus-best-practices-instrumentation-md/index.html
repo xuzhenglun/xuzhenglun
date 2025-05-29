@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 6.3.0">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/font-awesome.min.css">
+    <script data-ad-client="ca-pub-2538407472813986" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"reficul.io","root":"/","scheme":"Muse","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"hide","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":false,"show_result":false,"style":null},"back2top":{"enable":true,"sidebar":false,"scrollpercent":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":false,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="0x00本文旨在对如何设计监控方面提供一些意见性的指导和建议。  本文章翻译自Prometheus官方文档：Best Pratices-INSTRUMENTATION">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Prometheus最佳实践 --- INSTRUMENTATION">
+<meta property="og:url" content="https://reficul.io/2019/12/22/prometheus-best-practices-instrumentation-md/index.html">
+<meta property="og:site_name" content="Reficul">
+<meta property="og:description" content="0x00本文旨在对如何设计监控方面提供一些意见性的指导和建议。  本文章翻译自Prometheus官方文档：Best Pratices-INSTRUMENTATION">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2019-12-22T23:43:28.000Z">
+<meta property="article:modified_time" content="2025-05-29T17:21:18.453Z">
+<meta property="article:author" content="Reficul">
+<meta property="article:tag" content="Prometheus">
+<meta property="article:tag" content="Best Practices">
+<meta property="article:tag" content="Instrumentation">
+<meta property="article:tag" content="最佳实践">
+<meta name="twitter:card" content="summary">
+
+<link rel="canonical" href="https://reficul.io/2019/12/22/prometheus-best-practices-instrumentation-md/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Prometheus最佳实践 --- INSTRUMENTATION | Reficul</title>
+  
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-57211109-1"></script>
+    <script>
+      if (CONFIG.hostname === location.hostname) {
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'UA-57211109-1');
+      }
+    </script>
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">Reficul</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-fw fa-home"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-archives">
+
+    <a href="/archives/" rel="section"><i class="fa fa-fw fa-archive"></i>归档</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+  <div class="back-to-top">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://reficul.io/2019/12/22/prometheus-best-practices-instrumentation-md/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/icon.jpg">
+      <meta itemprop="name" content="Reficul">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Reficul">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Prometheus最佳实践 --- INSTRUMENTATION
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：12月 22 2019 23:43:28" itemprop="dateCreated datePublished" datetime="2019-12-22T23:43:28+00:00">12月 22 2019</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="fa fa-calendar-check-o"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：5月 29 2025 17:21:18" itemprop="dateModified" datetime="2025-05-29T17:21:18+00:00">5月 29 2025</time>
+              </span>
+
+          
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="0x00"><a href="#0x00" class="headerlink" title="0x00"></a>0x00</h2><p>本文旨在对如何设计监控方面提供一些意见性的指导和建议。 </p>
+<p>本文章翻译自Prometheus官方文档：<a target="_blank" rel="noopener" href="https://prometheus.io/docs/practices/instrumentation/#how-to-instrument">Best Pratices-INSTRUMENTATION</a></p>
+<span id="more"></span>
+
+<h2 id="0x01-要怎么监控？"><a href="#0x01-要怎么监控？" class="headerlink" title="0x01 要怎么监控？"></a>0x01 要怎么监控？</h2><p>简单地来说，就是监控所有东西：对于任何一个库(Library)，子系统(SubSystem)或者服务(Service)来说，都至少应该有几个指标来告诉你他们现在的运行状况。数据采集应该是代码里不可或缺的一部分。这能够在你调查错误的时候，能更容易的从告警着手，进而联系到控制台和代码里去。</p>
+<h3 id="服务可以被分为三类"><a href="#服务可以被分为三类" class="headerlink" title="服务可以被分为三类"></a>服务可以被分为三类</h3><p>根据监控的目地，服务通常可以分为以下三类：在线服务、离线服务以及批处理任务。虽然这三种服务的定义互相之间略有重叠，但是基本上所有的服务都可以很好的被纳入其中之一里去。</p>
+<h4 id="在线服务"><a href="#在线服务" class="headerlink" title="在线服务"></a>在线服务</h4><p>如果一个人或者其他的系统期望在这个系统里能够立即得到响应，那么这个系统就是一个在线系统。打一个比方，大部分的数据库、HTTP服务都归于此类。</p>
+<p>对于这种系统而言，关键监控指标就是发生的“查询（query）数量”、“错误(error)数量”以及“延迟(latency)情况”。同样而言，如果把这些指标项套用在当前正在处理中的请求上的话，也是十分具有意义的。</p>
+<p>而对错误的监控方面的建议，请直接参考下文的<a href="#%E9%94%99%E8%AF%AF%E5%A4%84%E7%90%86">错误</a>章节。</p>
+<p>对于是属于“在线服务”类的系统而言，应该同时监控它的服务端和客户端。因为如果看到两边的指标数据不一样了，那么这个事情对于Debug是非常有帮助的。不过，如果一个服务里存在有非常多的客户端，以至于无法一一地追踪客户端的状态，那么也只能依靠它们自己的统计数据了。</p>
+<p>另外，在对查询（query）进行计数的时候，要么全部在操作开始前，要么都在结束后。 在结束后进行计数是比较推荐的，因为这能够对错误和延迟状况进行统计，而且写起代码来也更简单。</p>
+<h4 id="离线服务"><a href="#离线服务" class="headerlink" title="离线服务"></a>离线服务</h4><p>对于离线服务而言，不会有人会干等着响应回来，而任务基本上是成批的，并且基本上处理过程都得分为好几个阶段。</p>
+<p>针对每一个阶段，追踪每一个扇入的任务，有多少个任务正在处理，上次处理任务的时间，扇出了多少个任务。如果是批量任务的话，那对进出的批次也应该追踪起来。</p>
+<p>知道“上次处理任务的时间”这个信息对判断系统有没有挂掉是一个很有用的信息，但是这个信息具有很大的局限性。更好的做法是将心跳信息贯穿整个系统：加入一些带有时间戳的虚拟任务，并将这些任务在系统内一直传递下去。在每个处理阶段内，都把他们观察到的最近一次的心跳时间戳暴露出来。因为对于在不在处理任务时也不存在静默期的系统而言，是不需要其他明确的心跳信息的。</p>
+<h4 id="批处理任务"><a href="#批处理任务" class="headerlink" title="批处理任务"></a>批处理任务</h4><p>对于离线任务和批处理任务而言，其中的界限是比较模糊的，这是因为离线处理很有可能就是一个批处理任务。因此，在这是用他们是否需要持续运行来区分是不是批处理任务，因为就是这点导致了收集他们的信息十分的困难。</p>
+<p>对于批处理任务而言，关键的指标就是上次任务成功的时间。另外，追踪任务在主要处理阶段所花费的时间，总体的运行时间以及上次任务完成时间（无论是成功还是失败）都是很有帮助的。这部分数据应该全都是Gauge类型的，而且都应该直接推到PushGateway里进而完成收集。另外在通常情况下，一些总体性的与任务相关的数字也是很有意义的，例如已处理的任务总数之类的。</p>
+<p>针对那些要跑好几分钟的批量任务而言，基于拉的监控模式也是挺好的。这可以让你观察到同一个监控指标在执行不同类型的任务的时候的区别，例如资源使用率，与其他系统交互时候的延迟等等。这些信息对于调查诸如任务处理开始变慢的问题的时候，是非常具有参考意义的。</p>
+<p>针对于那些跑得非常频繁（一般来说，小于15分种跑一次就算频繁）的任务而言，你就应该考虑将这些任务转换成一个常驻服务，并将其当作离线任务来处理。</p>
+<h3 id="子系统（SubSystem）"><a href="#子系统（SubSystem）" class="headerlink" title="子系统（SubSystem）"></a>子系统（SubSystem）</h3><p>除了按三种基本服务类型来监控以外，系统中也有一些部分需要被监控起来。</p>
+<h4 id="依赖库（Libraries）"><a href="#依赖库（Libraries）" class="headerlink" title="依赖库（Libraries）"></a>依赖库（Libraries）</h4><p>依赖库应该提供一些无需用户额外配置的监控方式。</p>
+<p>如果一个库是用来从外部去拿一些资源信息的（比如网络，磁盘，IPC等），理应对他们总体的每分钟调用数量，错误数量（如果有可能发生）以及延迟情况进行统计。</p>
+<p>根据被依赖的库的复杂程度，来追踪依赖库内部产生的内部错误以及延迟情况，或是任何你认为有用的通用统计数据。</p>
+<p>一个依赖库也很有可能被一个应用内的完全不同的部分独立的调用了，所以注意使用合适的标签（Label）来区分彼此。 打一个比方：一个数据库链接池应该以它连接到的数据库来区分，但是对于DNS客户端库而言就没必要进行区分了。</p>
+<h4 id="日志"><a href="#日志" class="headerlink" title="日志"></a>日志</h4><p>有一个通用的规则：对于每一条日志而言你都应该对于有一个自增的计数器来对其计数。这是因为，如果你在对某条日志比较感兴趣的时候，你很有可能会想知道它多久发生一次，以及每次发生持续多久。</p>
+<p>如果在一个函数里有多个很接近的日志的话（例如在If&#x2F;Switch的不同分支里），那么这时候也可以用一个计数器来代表他们所有。</p>
+<p>通常情况下，对应用日志的INFO&#x2F;ERROR&#x2F;WARNING日志总条目进行计数是很有用的，这能够用于在发布过程中检查其有没有较大的差异。</p>
+<h4 id="错误处理"><a href="#错误处理" class="headerlink" title="错误处理"></a>错误处理</h4><p>错误处理应该和日志比较相近。每次有错误发生，一个计数器就应该自增。但是和日志不同的是，错误通常会向上传递到一个更宽泛的错误计数器之上，这通常取决于你的代码结构。</p>
+<p>当汇报错误的时候，你通常应该有其它一些代表总共尝试次数的指标，进而能够用这些信息来计算出错误率。</p>
+<h4 id="线程池"><a href="#线程池" class="headerlink" title="线程池"></a>线程池</h4><p>对于任何类型的线程池而言，最重要的指标就是请求队列的深度，当前的线程数量，线程池线程的总数，处理的任务数量，以及处理任务所消耗的时间。当然，追踪任务在队列中等待的时间也很有用的。</p>
+<h4 id="缓存"><a href="#缓存" class="headerlink" title="缓存"></a>缓存</h4><p>对于缓存来说，主要的监控指标是总查询次数，缓存命中次数，总体延迟时间。而对于任意在线系统前的缓存而言，则是查询次数，错误次数以及延迟。</p>
+<h4 id="收集器（Collector）"><a href="#收集器（Collector）" class="headerlink" title="收集器（Collector）"></a>收集器（Collector）</h4><p>对于实现一个重要的自定义指标收集器而言，有一条建议是将收集器每秒消耗的时间以及其发生的错误次数进行记录，通过Guage的方式进行导出。</p>
+<p>只有两种情况下可以将一个事情发生的持续时间用Guage形式导出，上述场景就是其中的一种，另外一种情况则是批处理任务的持续时间。这是因为这两种场景分别代表了搜刮和推送特定信息的场景，并非是要随着时间的推移追踪多个事件的持续时间。</p>
+<h2 id="0x10-注意事项"><a href="#0x10-注意事项" class="headerlink" title="0x10 注意事项"></a>0x10 注意事项</h2><p>这部分里总结了一些注意事项是做监控时通用的，但其中也有一些与Prometheus特定相关的部分。</p>
+<h3 id="使用标签"><a href="#使用标签" class="headerlink" title="使用标签"></a>使用标签</h3><p>很少有监控系统用标签和计算表达式的概念作为卖点，因此在这点上需要花点时间来习惯一下。</p>
+<p>当你希望有多个指标需要对其求增量&#x2F;平均值&#x2F;求和的时候，这些指标通常能够被整合到一个指标里去，而不是利用多个指标来进行收集。</p>
+<p>举一个例子：比起用’http_responses_500_total’和’http_responses_403_total’两个指标而言，更好的做法是直接创建一个指标叫做’http_responses_total’，其中用’code’作为标签名来代表返回码 。通过这种方式，一整套指标就能够用同一套规则和视图来进行处理了。</p>
+<p>按照经验规则，监控指标的名称中任何一部分都不应该是程序生成的，需要生成的部分就应该使用标签。但是如果指标是来自于其他的监控系统，那么需要处理这样的代理指标可以的场景可以作为一种例外情况来特殊对待。</p>
+<p>此外，更多关于命名相关的建议可以参考命名相关的章节。</p>
+<h3 id="不要滥用标签"><a href="#不要滥用标签" class="headerlink" title="不要滥用标签"></a>不要滥用标签</h3><p>每个标签组合都是一个额外的时间序列，都会会给内存&#x2F;计算&#x2F;存储以及网络带来一定的资源消耗。虽然通常来说这个消耗是可以忽略不计的，但放到几百个机器上有一堆有上百个标签的指标的场景来看的话，资源的消耗量肯定是会急剧增加的。</p>
+<p>通常情况下，尽可能的保持你的监控指标的标签数量小于10。对于超出这个数量级的指标，尽可能确保它在系统中是一个少数情况。对于大多数的监控项都是不应该带有标签的。</p>
+<p>如果有一个监控指标的标签数量大于100，而且还有变得更大的可能的话，就需要想办法给它找一个替代方案了。诸如减少指标的维度，或者将其从实时监控系统移到别的通用数据处理系统里去了。</p>
+<p>为了让你有一个对底层数字更好的认识，这里以node exporter为例。node exporter将会暴露每个已挂载的文件系统的监控指标，因此每台机器都会有十几个叫node_filesystem_avail的时间序列。 如果你有10,000台节点的话，最终单node_filesystem_avail就会大概有超过100,000个时间序列了。如果只在这种情况下，Prometheus还是没啥问题的。</p>
+<p>但是糟糕的是如果现在你又为每个用户添加了磁盘配额的设定，即在10,000个节点上有10,000个用户，那么这很快就会给原本百万级别的数量级再带来两位数的提升。这个数字对于Prometheus当前的实现来说就太多了！ 但是即便对于数量小一些，那也存在一定的机会成本。因为在这个机器上，你已经无法去收集一些别的更有潜力有价值的指标了。</p>
+<p>综上，如果你不确定是否应该加上标签，那么最好一开始的时候先别加，在之后有具体的使用场景的时候再加也不迟。</p>
+<h3 id="Counter-vs-gauge-summary-vs-histogram"><a href="#Counter-vs-gauge-summary-vs-histogram" class="headerlink" title="Counter vs. gauge, summary vs. histogram"></a>Counter vs. gauge, summary vs. histogram</h3><p>对于监控来说，知道什么时候该用四种指标类型中的某一个是至关重要的。</p>
+<p>在Counter和Gauge类型的选择中， 只有一条简单的经验规则：如果指标的值会下降，那就用Guage。</p>
+<p>因为Counter类型只能够单调递增（虽然可能重置，不过这只发生在被监控的进程重启的时候）。也正因为这个特点，Counter在累计一些事件发生的次数或是每个事件里事物的数量的场景下特别有用。举一个例子：HTTP请求的发生的总次数，或是HTTP请求已发送的总字节数。Counter的值如果直接用一般没啥意义，一般都会搭配rate函数来计算它每秒的自增量。</p>
+<p>Gauges类型的值能够被直接设置一个大小，或者变大&#x2F;变小。这点在需要对当前状态收集一个快照的时候尤为有用。例如当前处理中的请求数量，空闲&#x2F;总内存数量，或者温度。对于Gauge类型的指标，你永远不应该对其使用rate函数进行求值。</p>
+<p>Summaries和Histograms类型就比上面两种复杂太多，这部分会在他们自己的章节中单独讨论。</p>
+<h3 id="具体的时间戳，而非相对时间"><a href="#具体的时间戳，而非相对时间" class="headerlink" title="具体的时间戳，而非相对时间"></a>具体的时间戳，而非相对时间</h3><p>如果你需要追踪一个事情自发生以来的持续时间，在导出指标数据的时候，导出事件发生时间的Unix时间戳而非相对于当前时间的持续时间。</p>
+<p>而对于已导出的时间戳数据，可以用过time函数减去事件发生的时间戳来计算出事件的持续时间。通过这种方式能够避免对数据进行更新操作，进而保护在更新操作的时候发生卡住的现象。</p>
+<h3 id="循环内"><a href="#循环内" class="headerlink" title="循环内"></a>循环内</h3><p>通常情况下，监控带来的资源消耗相比于它对运维和开发时候带来的好处，利是远大于弊的。</p>
+<p>但是对于那些进程里性能至关重要的部分，或是每秒都会被调用大于100k次的部分来说，你就应该需要考虑每次需要更新的指标有多少了。</p>
+<p>对于一个Java的Counter来说，根据实际情况大概需要12-17纳秒来完成计数操作，这点在别的语言里的性能也差不多。如果在循环里有一些第哦时间消耗敏感的部分，那就应该对需要计数的指标数量进行一些限制，并且尽可能避免在循环内去使用标签查找操作（可以在循环外把根据标签查找到的结果进行一个缓存，例如把With方法（Go）&#x2F;labels方法(Java)返回的缓存起来。）</p>
+<p>另外需要注意的是，更新涉及时间&#x2F;持续时间的监控指标有可能会调用系统调用。因此，对于那些有性能敏感的代码来说，跑一个Benchmark才是判断性能影响方面最好的办法。</p>
+<h3 id="避免缺失指标"><a href="#避免缺失指标" class="headerlink" title="避免缺失指标"></a>避免缺失指标</h3><p>在事件还没发生前不进行上报的那种时间序列是很难被处理的，通常的处理方式都无法正确处理他们。因此用将所有已知在之后会出现的时间序列都用 0 导出（其中如果0会导致被误解的话，那么就导出一个NaN）的方式来避免这种情况的发生。</p>
+<p>大多数Prometheus的SDK（包括Go&#x2F;Java&#x2F;Python）都会自动为你将没有标签的指标用 0 进行导出。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>Reficul
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://reficul.io/2019/12/22/prometheus-best-practices-instrumentation-md/" title="Prometheus最佳实践 --- INSTRUMENTATION">https://reficul.io/2019/12/22/prometheus-best-practices-instrumentation-md/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" rel="noopener" target="_blank"><i class="fa fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Prometheus/" rel="tag"># Prometheus</a>
+              <a href="/tags/Best-Practices/" rel="tag"># Best Practices</a>
+              <a href="/tags/Instrumentation/" rel="tag"># Instrumentation</a>
+              <a href="/tags/%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5/" rel="tag"># 最佳实践</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2019/02/19/go-dark-magic-1/" rel="prev" title="Golang黑魔法(1)：使用其他包中未导出的函数">
+      <i class="fa fa-chevron-left"></i> Golang黑魔法(1)：使用其他包中未导出的函数
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2021/02/21/why-am-i-afk-from-wow/" rel="next" title="我是怎么从WoW AFK的">
+      我是怎么从WoW AFK的 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    
+  <div class="comments">
+    <div id="disqus_thread">
+      <noscript>Please enable JavaScript to view the comments powered by Disqus.</noscript>
+    </div>
+  </div>
+  
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#0x00"><span class="nav-number">1.</span> <span class="nav-text">0x00</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#0x01-%E8%A6%81%E6%80%8E%E4%B9%88%E7%9B%91%E6%8E%A7%EF%BC%9F"><span class="nav-number">2.</span> <span class="nav-text">0x01 要怎么监控？</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9C%8D%E5%8A%A1%E5%8F%AF%E4%BB%A5%E8%A2%AB%E5%88%86%E4%B8%BA%E4%B8%89%E7%B1%BB"><span class="nav-number">2.1.</span> <span class="nav-text">服务可以被分为三类</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9C%A8%E7%BA%BF%E6%9C%8D%E5%8A%A1"><span class="nav-number">2.1.1.</span> <span class="nav-text">在线服务</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%A6%BB%E7%BA%BF%E6%9C%8D%E5%8A%A1"><span class="nav-number">2.1.2.</span> <span class="nav-text">离线服务</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%89%B9%E5%A4%84%E7%90%86%E4%BB%BB%E5%8A%A1"><span class="nav-number">2.1.3.</span> <span class="nav-text">批处理任务</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%AD%90%E7%B3%BB%E7%BB%9F%EF%BC%88SubSystem%EF%BC%89"><span class="nav-number">2.2.</span> <span class="nav-text">子系统（SubSystem）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BE%9D%E8%B5%96%E5%BA%93%EF%BC%88Libraries%EF%BC%89"><span class="nav-number">2.2.1.</span> <span class="nav-text">依赖库（Libraries）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%97%A5%E5%BF%97"><span class="nav-number">2.2.2.</span> <span class="nav-text">日志</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%94%99%E8%AF%AF%E5%A4%84%E7%90%86"><span class="nav-number">2.2.3.</span> <span class="nav-text">错误处理</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%BA%BF%E7%A8%8B%E6%B1%A0"><span class="nav-number">2.2.4.</span> <span class="nav-text">线程池</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%BC%93%E5%AD%98"><span class="nav-number">2.2.5.</span> <span class="nav-text">缓存</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%94%B6%E9%9B%86%E5%99%A8%EF%BC%88Collector%EF%BC%89"><span class="nav-number">2.2.6.</span> <span class="nav-text">收集器（Collector）</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#0x10-%E6%B3%A8%E6%84%8F%E4%BA%8B%E9%A1%B9"><span class="nav-number">3.</span> <span class="nav-text">0x10 注意事项</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%BD%BF%E7%94%A8%E6%A0%87%E7%AD%BE"><span class="nav-number">3.1.</span> <span class="nav-text">使用标签</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E4%B8%8D%E8%A6%81%E6%BB%A5%E7%94%A8%E6%A0%87%E7%AD%BE"><span class="nav-number">3.2.</span> <span class="nav-text">不要滥用标签</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Counter-vs-gauge-summary-vs-histogram"><span class="nav-number">3.3.</span> <span class="nav-text">Counter vs. gauge, summary vs. histogram</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%85%B7%E4%BD%93%E7%9A%84%E6%97%B6%E9%97%B4%E6%88%B3%EF%BC%8C%E8%80%8C%E9%9D%9E%E7%9B%B8%E5%AF%B9%E6%97%B6%E9%97%B4"><span class="nav-number">3.4.</span> <span class="nav-text">具体的时间戳，而非相对时间</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BE%AA%E7%8E%AF%E5%86%85"><span class="nav-number">3.5.</span> <span class="nav-text">循环内</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%81%BF%E5%85%8D%E7%BC%BA%E5%A4%B1%E6%8C%87%E6%A0%87"><span class="nav-number">3.6.</span> <span class="nav-text">避免缺失指标</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+    <img class="site-author-image" itemprop="image" alt="Reficul"
+      src="/images/icon.jpg">
+  <p class="site-author-name" itemprop="name">Reficul</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives/">
+        
+          <span class="site-state-item-count">15</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+        <span class="site-state-item-count">7</span>
+        <span class="site-state-item-name">分类</span>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">46</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/xuzhenglun" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-github"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:xuzhenglun@gmail.com" title="E-Mail → mailto:xuzhenglun@gmail.com" rel="noopener" target="_blank"><i class="fa fa-fw fa-envelope"></i>E-Mail</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="https://twitter.com/xuzhenglun" title="Twitter → https:&#x2F;&#x2F;twitter.com&#x2F;xuzhenglun" rel="noopener" target="_blank"><i class="fa fa-fw fa-twitter"></i>Twitter</a>
+      </span>
+  </div>
+
+
+  <div class="links-of-blogroll motion-element">
+    <div class="links-of-blogroll-title">
+      <i class="fa fa-fw fa-link"></i>
+      Links
+    </div>
+    <ul class="links-of-blogroll-list">
+        <li class="links-of-blogroll-item">
+          <a href="https://farer.org/" title="https:&#x2F;&#x2F;farer.org&#x2F;" rel="noopener" target="_blank">Eric</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://sakeven.me/" title="https:&#x2F;&#x2F;sakeven.me" rel="noopener" target="_blank">Sakeven</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://reality0ne.com/" title="https:&#x2F;&#x2F;reality0ne.com" rel="noopener" target="_blank">realityOne</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://justjjy.com/" title="https:&#x2F;&#x2F;justjjy.com" rel="noopener" target="_blank">JJY</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://renlulu.github.io/" title="https:&#x2F;&#x2F;renlulu.github.io" rel="noopener" target="_blank">Renlulu</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://g.yannxia.top/" title="https:&#x2F;&#x2F;g.yannxia.top" rel="noopener" target="_blank">Summer</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://tomwei7.com/" title="https:&#x2F;&#x2F;tomwei7.com" rel="noopener" target="_blank">TomWei</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://yowenter.github.io/" title="https:&#x2F;&#x2F;yowenter.github.io" rel="noopener" target="_blank">TaoGe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://ylck.me/" title="https:&#x2F;&#x2F;ylck.me" rel="noopener" target="_blank">Ylck</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://wangzhezhe.github.io/" title="https:&#x2F;&#x2F;wangzhezhe.github.io&#x2F;" rel="noopener" target="_blank">Wangzhezhe</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.jinwei.me/" title="https:&#x2F;&#x2F;blog.jinwei.me" rel="noopener" target="_blank">Clark</a>
+        </li>
+        <li class="links-of-blogroll-item">
+          <a href="https://blog.ihypo.net/" title="https:&#x2F;&#x2F;blog.ihypo.net" rel="noopener" target="_blank">Hypo</a>
+        </li>
+    </ul>
+  </div>
+
+      </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 2015 – 
+  <span itemprop="copyrightYear">2025</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">Reficul</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" class="theme-link" rel="noopener" target="_blank">Hexo</a> & <a href="https://muse.theme-next.org/" class="theme-link" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/viz.js/1.7.1/viz.js'></script>
+  <script>
+    String.prototype.replaceAll = function(search, replacement) {
+      var target = this;
+      return target.split(search).join(replacement);
+    };
+
+    let vizObjects = document.querySelectorAll('.graphviz')
+
+    for (let item of vizObjects) {
+      let svg = undefined
+      try {
+        svg = Viz(item.textContent.replaceAll('–', '--'), 'svg')
+      } catch(e) {
+        svg = `<pre class="error">${e}</pre>`
+      }
+      item.outerHTML = svg
+    }
+  </script>
+
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+
+<script src="/js/schemes/muse.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+  <script defer src="/lib/three/three.min.js"></script>
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+  
+
+<script>
+  var disqus_config = function() {
+    this.page.url = "https://reficul.io/2019/12/22/prometheus-best-practices-instrumentation-md/";
+    this.page.identifier = "2019/12/22/prometheus-best-practices-instrumentation-md/";
+    this.page.title = "Prometheus最佳实践 --- INSTRUMENTATION";
+    };
+  NexT.utils.loadComments(document.querySelector('#disqus_thread'), () => {
+    if (window.DISQUS) {
+      DISQUS.reset({
+        reload: true,
+        config: disqus_config
+      });
+    } else {
+      var d = document, s = d.createElement('script');
+      s.src = 'https://xuzhenglun.disqus.com/embed.js';
+      s.setAttribute('data-timestamp', '' + +new Date());
+      (d.head || d.body).appendChild(s);
+    }
+  });
+</script>
+
+</body>
+</html>
